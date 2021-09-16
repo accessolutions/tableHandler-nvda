@@ -1,0 +1,2293 @@
+# globalPlugins/tableHandler.py
+# -*- coding: utf-8 -*-
+
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020 Accessolutions (https://accessolutions.fr)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# See the file COPYING.txt at the root of this distribution for more details.
+
+"""Table Handler Global Plugin
+"""
+
+# Get ready for Python 3
+from __future__ import absolute_import, division, print_function
+
+__version__ = "2021.09.09"
+__author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
+__license__ = "GPL"
+
+import six
+import weakref
+
+from NVDAObjects import DynamicNVDAObjectType, IAccessible, NVDAObject, UIA
+import addonHandler
+import api
+from baseObject import AutoPropertyObject, ScriptableObject
+import braille
+import brailleInput
+import browseMode
+import compoundDocuments
+import config
+import controlTypes
+import eventHandler
+import globalPluginHandler
+import inputCore
+from keyboardHandler import KeyboardInputGesture
+from logHandler import log
+import oleacc
+import queueHandler
+import scriptHandler
+import speech
+import textInfos
+import textInfos.offsets
+from treeInterceptorHandler import TreeInterceptor
+import ui
+import vision
+
+
+try:
+	REASON_CARET = controlTypes.OutputReason.CARET
+	REASON_ONLYCACHE = controlTypes.OutputReason.ONLYCACHE
+except AttributeError:
+	# NVDA < 2021.1
+	REASON_CARET = controlTypes.REASON_CARET
+	REASON_ONLYCACHE = controlTypes.REASON_ONLYCACHE
+
+
+# addonHandler.initTranslation()
+
+
+SCRIPT_CATEGORY = "TableHandler"
+
+
+def _getObjLogInfo(obj):
+	from pprint import pformat
+	import globalVars
+	info = {
+		"obj": repr(obj),
+		"isFocus": globalVars.focusObject is obj,
+		"(windowHandle, objectID, childID)": (
+			getattr(obj, "event_windowHandle", None),
+			getattr(obj, "event_objectID", None),
+			getattr(obj, "event_childID", None)
+		)
+	}
+	ti = obj.treeInterceptor
+	info["treeInterceptor"] = repr(ti)
+	if obj.treeInterceptor:
+		info["passThrough"] = ti.passThrough
+		info["isReady"] = ti.isReady
+		info["_hadFirstGainFocus"] = ti._hadFirstGainFocus
+	return pformat(info, indent=4)
+
+
+def _setFocusObject(obj):
+	
+	
+	log.info(f">>> api.setFocusObject({_getObjLogInfo(obj)})")
+	res = _setFocusObject.super(obj)
+	import globalVars
+	log.info(f"<<< api.setFocusObject: {_getObjLogInfo(globalVars.focusObject)})")
+
+_setFocusObject.super = api.setFocusObject
+api.setFocusObject = _setFocusObject
+
+
+class GlobalPlugin(globalPluginHandler.GlobalPlugin):
+	
+	def __init__(self):
+		super(GlobalPlugin, self).__init__()
+		initialize()
+	
+	def chooseNVDAObjectOverlayClasses(self, obj, clsList):  # TODO
+		role = obj.role
+		if role == controlTypes.ROLE_DOCUMENT:
+			clsList.insert(0, TableHandlerDocument)
+	
+	def terminate(self):
+		terminate()
+	
+	def script_toggleTableMode(self, gesture):
+		focus = api.getFocusObject()
+		if isinstance(focus, TextInfoDrivenFakeCell):
+			ti = focus.treeInterceptor
+			if ti._currentTable is not None:
+				ti._tableManagers.pop(ti._currentTable.tableID, None)
+			ti.passThrough = False
+			reportPassThrough(ti)
+			return
+		info = api.getReviewPosition()
+		table = getTableManager(info=info, setPosition=True, force=True)
+		if table:
+			ti = table.treeInterceptor
+			table.setFocus()
+			return
+		# Translators: Reported when attempting to switch to table mode
+		ui.message(_("No suitable table found"))
+			
+	
+	script_toggleTableMode.ignoreTreeInterceptorPassThrough = True
+	# Translators: The description of a command.
+	script_toggleTableMode.__doc__ = "Toggle table mode."
+	
+	__gestures = {
+		"kb:nvda+control+shift+space": "toggleTableMode"
+	}
+
+
+_handlers = ["Table handler not initialized"]
+
+
+def initialize():
+	global _handlers
+	_handlers[:] = [VBufTableHandler()]
+
+
+def terminate():
+	_handlers = ["Table handler terminated"]
+
+
+def register(handler):
+	_handlers.insert(0, handler)
+
+
+def getTableManager(**kwargs):
+	tableConfig = None
+	for handler in _handlers:
+		if isinstance(handler, weakref.ReferenceType):
+			handler = handler()
+			if not handler:
+				continue
+		try:
+			table = handler.getTableManager(**kwargs)
+		except Exception:
+			log.exception("handler={!r}, kwargs={!r}".format(handler, kwargs))
+		if table:
+			return table
+
+
+class TableConfig(object):
+	
+	def getColumnWidthBraille(self, rowNumber, columnNumber):
+		return 10
+
+
+class TableHandler(object):
+
+	def getTableManager(self, **kwargs):
+		raise NotImplementedError
+	
+	def getTableConfig(self, **kwargs):
+		return TableConfig()
+
+
+class VBufTableHandler(TableHandler):
+	
+	def getTableManager(self, info=None, tableConfig=None, setPosition=False, force=False, **kwargs):
+		ti = None
+		try:
+			if isinstance(info.obj, TreeInterceptor):
+				ti = info.obj
+			else:
+				ti = info.obj.treeInterceptor
+		except AttributeError:
+			log.exception()
+			ti = None
+		if not isinstance(ti, TableHandlerTreeInterceptor):
+			log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
+			return None
+		func = ti._getTableCellCoordsIncludingLayoutTables
+		try:
+			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = func(info)
+		except LookupError:
+			return None
+		if not tableConfig:
+			# TODO: Determine TableConfig key
+			tableConfig = self.getTableConfig(key="default")
+		table = VBufFakeTableManager(
+			#parent=self.rootNVDAObject,
+			_tableConfig=tableConfig,
+			tableID=tableID,
+			treeInterceptor=ti,
+			startPos=info,
+		)
+		if setPosition:
+			table._currentRowNumber = rowNum
+			table._currentColumnNumber = colNum
+			ti._currentTable = table
+			ti.passThrough = TABLE_MODE
+			reportPassThrough(ti)
+		return table
+
+
+def catchAll(logger, *loggerArgs, **loggerKwargs):
+	def decorator(func):
+		def wrapper(*args, **kwargs):
+			try:
+				return func(*args, **kwargs)
+			except:
+				log.exception(
+					"args={}, kwargs={}".format(repr(args), repr(kwargs)),
+					*loggerArgs,
+					**loggerKwargs
+				)
+		return wrapper
+	return decorator
+			
+
+def getDynamicClass(bases):
+	"""Create a new class given its bases.
+	
+	Based upon `DynamicNVDAObjectType.__call__`.
+	"""
+	if not isinstance(bases, tuple):
+		bases = tuple(bases)
+	cache = DynamicNVDAObjectType._dynamicClassCache
+	dynCls = cache.get(bases)
+	if not dynCls:
+		name = "Dynamic_%s" % "".join([x.__name__ for x in bases])
+		dynCls = type(name, bases, {})
+		cache[bases] = dynCls
+	return dynCls
+
+
+class ScriptWrapper(object):
+	"""
+	Wrap a script to help controlling its metadata or its execution.
+	"""
+	def __init__(self, script, override=None, arg="script", **defaults):
+		self.script = script
+		self.override = override
+		self.arg = arg
+		self.defaults = defaults
+	
+	def __getattribute__(self, name):
+		# Pass existing wrapped script attributes such as __doc__, __name__,
+		# category, ignoreTreeInterceptorPassThrough or resumeSayAllMode.
+		# Note: scriptHandler.executeScript looks at script.__func__ to
+		# prevent recursion.
+		if name not in ("__class__", "script", "override", "arg", "defaults"):
+			if self.override:
+				try:
+					return getattr(self.override, name)
+				except AttributeError:
+					pass
+			try:
+				return getattr(self.script, name)
+			except AttributeError:
+				pass
+			try:
+				return self.defaults[name]
+			except KeyError:
+				pass
+		return object.__getattribute__(self, name)
+	
+	def __call__(self, gesture, **kwargs):
+		if self.override:
+			# Throws `TypeError` on purpose if `arg` is already in `kwargs`
+			return self.override(gesture, **kwargs, **{self.arg: self.script})
+		return self.script(gesture, **kwargs)
+
+
+def getScriptGestureDisplayText(scriptCls, script, obj=None, ancestors=None):
+	map = inputCore.manager.getAllGestureMappings(obj=obj, ancestors=ancestors)
+	category = inputCore._AllGestureMappingsRetriever.getScriptCategory(scriptCls, script)
+	scripts = map.get(category, {})
+	scriptInfo = scripts.get(script.__doc__, None)
+	if not scriptInfo or not scriptInfo.gestures:
+		return None
+	gesture = next(iter(scriptInfo.gestures))
+	source, main = inputCore.getDisplayTextForGestureIdentifier(gesture)
+	if (
+		source == _("keyboard, all layouts")
+		or source in [_("%s keyboard") % layout for layout in KeyboardInputGesture.LAYOUTS]
+	):
+		return main
+	return _("{main} ({source})").format(main=main, source=source)
+
+
+class TableMode(object):
+	"""Used to represent Table Mode as an alternative value of `TreeInterceptor.passThrough`
+	
+	See `TABLE_MODE`.
+	"""
+	
+	def __bool__(self):
+		# Mostly considered as Browse Mode
+		return False
+	
+	def __repr__(self):
+		return "<TableMode>"
+
+
+TABLE_MODE = TableMode()
+
+
+def getColumnSpanSafe(cell):
+	try:
+		span = cell.columnSpan
+		if span is None:
+			span = 1
+		elif span < 1:
+			log.error("cell={}, role={}, columnSpan={}".format(repr(cell), cell.role, span))
+			span = 1
+	except NotImplementedError:
+		span = 1
+	except Exception:
+		log.exception("cell={}".format(repr(cell)))
+		span = 1
+	return span
+
+
+def getRowSpanSafe(cell):
+	try:
+		span = cell.rowSpan
+		if span < 1:
+			log.error("cell={}, role={}, rowSpan={}".format(repr(cell), cell.role, span))
+			span = 1
+	except NotImplementedError:
+		span = 1
+	except Exception:
+		log.exception("cell={}".format(repr(cell)))
+		span = 1
+	return span
+
+
+def reportPassThrough(treeInterceptor, onlyIfChanged=True):
+	if treeInterceptor.passThrough == TABLE_MODE:
+		if browseMode.reportPassThrough.last is not treeInterceptor.passThrough:
+			# Translators: Announced when switching to Table Mode
+			speech.speakMessage(_("Table Mode"))
+		browseMode.reportPassThrough.last = treeInterceptor.passThrough
+		return
+	browseMode.reportPassThrough(treeInterceptor, onlyIfChanged=onlyIfChanged)
+
+
+class TableHandlerDocument(AutoPropertyObject):
+	"""Integrate Table UX into a document.
+	
+	This class is intended to be used as an overlay to an `NVDAObject` with role document.
+	"""
+	
+	def _get_treeInterceptorClass(self):
+		# Might raise NotImplementedError on purpose.
+		superCls = super(TableHandlerDocument, self).treeInterceptorClass
+		if not issubclass(
+			superCls,
+			browseMode.BrowseModeDocumentTreeInterceptor
+		):
+			return superCls
+		return getDynamicClass((TableHandlerTreeInterceptor, superCls))
+
+
+class TableHandlerTreeInterceptor(browseMode.BrowseModeDocumentTreeInterceptor):
+	"""Integrate Table UX into a `BrowseModeDocumentTreeInterceptor`.
+	""" 
+	
+	def __init__(self, rootNVDAObject):
+		super(TableHandlerTreeInterceptor, self).__init__(rootNVDAObject)
+		
+		self.autoTableMode = False
+		self._currentTable = None		
+		
+		self._tableManagers = {}
+		"""Maps table ID to TableManager."""
+	
+	def __contains__(self, obj):
+		if self.passThrough == TABLE_MODE:
+			if isinstance(obj, (TableManager, Row, Cell)):
+				return obj.tableID in self._tableManagers
+		else:
+			return super(TableHandlerTreeInterceptor, self).__contains__(obj)
+	
+	def _set_passThrough(self, state):
+		if self._passThrough == state:
+			return
+		if state == TABLE_MODE:
+			table = self._currentTable
+			if table is None:
+				table = self._currentTable = getTableManager(
+					info=self.selection,
+					setPosition=True,
+					force=True
+				)
+			if table is None:
+				raise Exception("No table at current position")
+			self._passThrough = state
+			queueHandler.queueFunction(queueHandler.eventQueue, table.setFocus)
+			return
+		if self.passThrough == TABLE_MODE:
+			self._passThrough = None
+			api.setFocusObject(self._currentTable.parent)
+# 			if state:
+# 				log.error("oops! FOCUS MODE", stack_info=True)
+# 			else:
+# 				# Switch from Table Mode to Browse Mode
+# 				obj = api.getFocusObject()
+# 				self._focusLastFocusableObject()
+# 				if api.getFocusObject() is obj:
+# 					# Focus has not moved
+# 					obj = NVDAObject.objectWithFocus()
+# 					if obj.treeInterceptor is self:
+# 						log.info("back to real focus")
+# 						api.setFocusObject(obj)
+# 						log.info(f"back to real focus: {api.getFocusObject()}")
+# 					else:
+# 						args=(
+# 							obj.event_windowHandle,
+# 							obj.event_objectID,
+# 							obj.event_childID
+# 						)
+# 						log.info(f"{args}")
+# 						obj = IAccessible.getNVDAObjectFromEvent(*args)
+# 						log.info(f"redeemed: {obj}")
+# 						if obj and obj.treeInterceptor is self:
+# 							api.setFocusObject(obj)
+# 							log.info("back to redeemed")
+# 						else:
+# 							log.info("back to root")
+# 							api.setFocusObject(self.rootNVDAObject)
+# 				else:
+# 					log.info("did move")
+		super(TableHandlerTreeInterceptor, self)._set_passThrough(state)
+# 		if self.passThrough != TABLE_MODE and isinstance(api.getFocusObject(), FakeObject):
+# 			log.error("Mismatch!", stack_info=True)
+	
+# 	def _set_selection(self, info, reason=REASON_CARET):
+# 		if self.passThrough != TABLE_MODE and isinstance(api.getFocusObject(), FakeObject):
+# 			log.error("Mismatch!", stack_info=True)
+# 		if self.isReady:
+# 			prevTable = self._currentTable
+# 			table = self._currentTable = self._getTableManagerAt(info, setPosition=True)
+# 			if self.passThrough == TABLE_MODE:
+# 				self.passThrough = False
+# 				reportPassThrough(self)
+# 			elif table is not None and table is not prevTable:
+# 				info.updateSelection()
+# 				self.passThrough = TABLE_MODE
+# 				reportPassThrough(self)
+# 				return
+# 		super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=reason)
+# 		if self.passThrough != TABLE_MODE and isinstance(api.getFocusObject(), FakeObject):
+# 			log.error("Mismatch!", stack_info=True)
+	
+	@catchAll(log)
+	def getAlternativeScript(self, gesture, func):
+		func = super(TableHandlerTreeInterceptor, self).getAlternativeScript(gesture, func)
+		if func is None:
+			return func
+		disableTableModeBefore = getattr(func, "disableTableModeBefore", False)
+		restoreTableModeAfter = getattr(func, "restoreTableModeAfter", False)
+		restoreTableModeAfterIfBrowseMode = getattr(func, "restoreTableModeAfterIfBrowseMode", False)
+		
+		if not (
+			disableTableModeBefore
+			or restoreTableModeAfter
+			or restoreTableModeAfterIfBrowseMode
+		):
+			return func
+		
+		def override(gesture, script):
+			passThroughBefore = self.passThrough
+			tableModeBefore = passThroughBefore == TABLE_MODE
+			if tableModeBefore and disableTableModeBefore:
+				self.passThrough = False
+			if tableModeBefore and not (restoreTableModeAfter or restoreTableModeAfterIfBrowseMode):
+				before = self.selection.copy()
+			script(gesture)
+			if False and tableModeBefore and not self.passThrough and not (
+				restoreTableModeAfter or restoreTableModeAfterIfBrowseMode
+			):
+				after = self.selection.copy()
+				if (
+					before.compareEndPoints(after, "startToStart") == 0
+					and before.compareEndPoints(after, "endToEnd") == 0
+				):
+					log.info("No movement, restoring TABLE_MODE")
+					self.passThrough = TABLE_MODE
+			if False and tableModeBefore and (restoreTableModeAfter or (
+				not self.passThrough and restoreTableModeAfterIfBrowseMode
+			)):
+				log.info("Restoring TABLE_MODE")
+				self.passThrough = TABLE_MODE
+			if self.passThrough != passThroughBefore:
+				reportPassThrough(self)
+		
+		return ScriptWrapper(func, override)
+	
+	def getBrailleRegions(self, review=False):
+		if self.passThrough == TABLE_MODE:
+			if self._currentTable is not None:
+				cell = self._currentTable._currentCell
+				if cell is not None:
+					return cell.getBrailleRegions(review=review)
+				# TODO: Handle braille reporting of empty tables
+		return super(TableHandlerTreeInterceptor, self).getBrailleRegions(review=review)
+	
+	@catchAll(log)
+	def getScript(self, gesture):
+		if self.passThrough == TABLE_MODE:
+			table = self._currentTable
+			if table is not None:
+				cell = table._currentCell
+				if cell is not None:
+					func = cell.getScript(gesture)
+					if func is not None:
+						return func
+				row = table._currentRow
+				if row is not None:
+					func = row.getScript(gesture)
+					if func is not None:
+						return func
+				func = table.getScript(gesture)
+				if func is not None:
+					return func
+		func = super(TableHandlerTreeInterceptor, self).getScript(gesture)
+		if func is not None:
+			func = ScriptWrapper(
+				func,
+				disableTableModeBefore=getattr(func, "disableTableModeBefore", True)
+			)
+		return func
+	
+	def makeTextInfo(self, position):
+		if isinstance(position, FakeObject):
+			return position.makeTextInfo(position)
+		return super(TableHandlerTreeInterceptor, self).makeTextInfo(position)
+	
+	def shouldPassThrough(self, obj, reason=None):
+		if isinstance(obj, (VBufFakeCell, VBufFakeRow, VBufFakeTableManager)):
+			return False
+		return super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
+	
+	def _focusLastFocusableObject(self, activatePosition=False):
+		"""Used when auto focus focusable elements is disabled to sync the focus
+		to the browse mode cursor.
+		When auto focus focusable elements is disabled, NVDA doesn't focus elements
+		as the user moves the browse mode cursor. However, there are some cases
+		where the user always wants to interact with the focus; e.g. if they press
+		the applications key to open the context menu. In these cases, this method
+		is called first to sync the focus to the browse mode cursor.
+		"""
+		obj = self.currentFocusableNVDAObject
+		log.info(f"currentFocusableNVDAObject={_getObjLogInfo(obj)}")
+		if obj!=self.rootNVDAObject and self._shouldSetFocusToObj(obj) and obj!= api.getFocusObject():
+			obj.setFocus()
+			if api.getFocusObject() is not obj:
+				api.setFocusObject(obj)
+			# We might be about to activate or pass through a key which will cause
+			# this object to change (e.g. checking a check box). However, we won't
+			# actually get the focus event until after the change has occurred.
+			# Therefore, we must cache properties for speech before the change occurs.
+			speech.speakObject(obj, REASON_ONLYCACHE)
+			self._objPendingFocusBeforeActivate = obj
+		if activatePosition:
+			# Make sure we activate the object at the caret, which is not necessarily focusable.
+			self._activatePosition()
+	
+	def _shouldSetFocusToObj(self, obj):
+		if isinstance(obj, (VBufFakeCell, VBufFakeRow, VBufFakeTableManager)):
+			log.warning("wut?", stack_info=True)
+			return False
+		return super(TableHandlerTreeInterceptor, self)._shouldSetFocusToObj(obj)
+	
+	def _shouldIgnoreFocus(self, obj):
+		if isinstance(obj, (VBufFakeCell, VBufFakeRow, VBufFakeTableManager)):
+			log.warning("wut?", stack_info=True)
+			return False
+		return super(TableHandlerTreeInterceptor, self)._shouldIgnoreFocus(obj)
+	
+	def _getTableCellCoordsIncludingLayoutTables(self, info):
+		"""
+		Fetches information about the deepest table cell at the given position.
+		Derived from `DocumentWithTableNavigation._getTableCellAt` to never exclude layout tables.
+		@param info:  the position where the table cell should be looked for.
+		@type info: L{textInfos.TextInfo}
+		@returns: a tuple of table ID, is layout, row number, column number, row span, and column span.
+		@rtype: tuple
+		@raises: LookupError if there is no table cell at this position.
+		"""
+		if info.isCollapsed:
+			info = info.copy()
+			info.expand(textInfos.UNIT_CHARACTER)
+		fields=list(info.getTextWithFields())
+		# If layout tables should not be reported, we should First record the ID of all layout tables so that we can skip them when searching for the deepest table
+		layoutIDs=set()
+		if not config.conf["documentFormatting"]["includeLayoutTables"]:
+			for field in fields:
+				if isinstance(field, textInfos.FieldCommand) and field.command == "controlStart" and field.field.get('table-layout'):
+					tableID=field.field.get('table-id')
+					if tableID is not None:
+						layoutIDs.add(tableID)
+		for field in reversed(fields):
+			if not (isinstance(field, textInfos.FieldCommand) and field.command == "controlStart"):
+				# Not a control field.
+				continue
+			attrs = field.field
+			tableID=attrs.get('table-id')
+# 			if tableID is None or tableID in layoutIDs:
+			if tableID is None:
+				continue
+			if "table-columnnumber" in attrs and not attrs.get('table-layout'):
+				break
+		else:
+			raise LookupError("Not in a table cell")
+		return (attrs["table-id"],
+			tableID in layoutIDs,
+			attrs["table-rownumber"], attrs["table-columnnumber"],
+			attrs.get("table-rowsspanned", 1), attrs.get("table-columnsspanned", 1))
+	
+# 	def _getTableManager(self, info, setPosition=False, includeLayoutTables=False, force=False):
+# 		table = getTableManager(info, force=force)
+		
+# 		func = self._getTableCellCoordsIncludingLayoutTables
+# 		try:
+# 			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = func(info)
+# 		except LookupError:
+# 			if setPosition:
+# 				# No table at the position we are moving to.
+# 				# Let's forget the eventual suspended 
+# 				self.suspendedTableModeTableID = None
+# 			return None
+# 		tableMgr = self._tableManagers.get(tableID)
+# 		if (
+# 			tableMgr is None
+# 			and (includeLayoutTables or not isLayout)
+# 			and (force or self.autoTableMode)
+# 		):
+# 			tableMgr = VBufFakeTableManager(
+# 				#parent=self.rootNVDAObject,
+# 				tableID=tableID,
+# 				treeInterceptor=self,
+# 				startPos=info,
+# 			)
+# 		if table:
+# 			if setPosition:
+# 				table._currentRowNumber = rowNum
+# 				table._currentColumnNumber = colNum
+# 			if tableID is not None:
+# 				self._tableManagers[tableID] = tableMgr
+# 		return tableMgr
+		
+	def _quickNavScript(self, gesture, itemType, direction, errorMessage, readUnit):
+		log.info("_quickNavScript")
+		return super(TableHandlerTreeInterceptor, self)._quickNavScript(gesture, itemType, direction, errorMessage, readUnit)
+	
+# 	def event_treeInterceptor_gainFocus(self):
+# 		log.warning(f">>> event_treeInterceptor_gainFocus!! pre {self.passThrough} / {self._currentTable} / {self._getTableManagerAt(self.selection)}")
+# 		super(TableHandlerTreeInterceptor, self).event_treeInterceptor_gainFocus()
+# 		log.warning(f">>> event_treeInterceptor_gainFocus!! mid {self.passThrough} / {self._currentTable} / {self._getTableManagerAt(self.selection)}")
+# 		self.selection = self.selection
+# 		log.warning(f">>> event_treeInterceptor_gainFocus!! post {self.passThrough} / {self._currentTable} / {self._getTableManagerAt(self.selection)}")
+		
+# 		if self.passThrough is False and self._currentTable is None and self._getTableManagerAt(self.selection):
+# 			log.error("Restored!")
+# 			self.passThrough = TABLE_MODE
+# 		log.warning(f"<<< event_treeInterceptor_gainFocus!! {self.passThrough} / {self._currentTable} / {self._getTableManagerAt(self.selection)}")
+
+	
+	def event_gainFocus(self, obj, nextHandler):
+		log.info(f"TableHandlerTreeInterceptor.event_gainFocus({obj!r}, {nextHandler!r})")
+		if isinstance(obj, FakeObject):
+			nextHandler()
+			return
+		super(TableHandlerTreeInterceptor, self).event_gainFocus(obj, nextHandler)
+	
+	def script_disablePassThrough(self, gesture):
+		log.info("script_disablePassThrough")
+		if self.passThrough == TABLE_MODE:
+			self.passThrough = False
+			reportPassThrough(self)
+			return
+		super(TableHandlerTreeInterceptor, self).script_disablePassThrough(gesture)
+	
+	script_disablePassThrough.ignoreTreeInterceptorPassThrough = True
+
+
+class LaxSelectionTextInfo(textInfos.offsets.OffsetsTextInfo):
+	"""An `OffsetsTextInfo` overlay that treats selection-unawareness as unselected.
+	
+	Allows to query for selection objects that do not implement this feature.
+	"""
+	
+	def _get_selectionOffsets(self):
+		try:
+			return super(FakeObjectTextInfo, self).selectionOffsets
+		except NotImplementedError:
+			return 0, 0
+
+
+CHILD_ACCESS_GETTER = "getter"
+CHILD_ACCESS_ITERATION = "iteration"
+CHILD_ACCESS_SEQUENCE = "sequence"
+
+
+class FakeObject(NVDAObject):
+	"""Base class for NVDA objects which do not strictly correspond to a real control.
+	"""
+
+	_childAccess = CHILD_ACCESS_GETTER
+	
+	#def __init__(self, parent=None, **kwargs):
+	def __init__(self, **kwargs):
+		super(FakeObject, self).__init__()
+		if "children" in kwargs:
+			self._childAccess = CHILD_ACCESS_SEQUENCE
+		elif "firstChild" in kwargs:
+			self._childAccess = CHILD_ACCESS_ITERATION
+		for key, value in kwargs.items():
+			setattr(self, key, value)
+# 		if parent is not None:
+# 			self.parent = parent
+# 		else:
+# 			parent = self.parent  # Retrieve from eventually overloaded property.
+# 		self.appModule = parent.appModule
+# 		self.processID = parent.processID
+# 		try:
+# 			# HACK: Some NVDA code depends on window properties, even for non-Window objects.
+# 			self.windowHandle = parent.windowHandle
+# 			self.windowClassName = parent.windowClassName
+# 			self.windowControlID = parent.windowControlID
+# 			self.windowThreadID = parent.windowThreadID
+# 		except AttributeError:
+# 			pass
+		
+	def _get_TextInfo(self):
+		superCls = super(FakeObject, self).TextInfo
+		if not issubclass(
+			superCls,
+			textInfos.offsets.OffsetsTextInfo
+		):
+			return superCls
+		return getDynamicClass((LaxSelectionTextInfo, superCls))
+	
+	_cache_children = False
+	
+	def _get_children(self):
+		if self._childAccess == CHILD_ACCESS_GETTER:
+			children = []
+			index = 0
+			while True:
+				try:
+					child = self.getChild(index)
+				except Exception:
+					break
+				if child is None:
+					break
+				children.append(child)
+				index += 1
+			return children
+		elif self._childAccess == CHILD_ACCESS_ITERATION:
+			children = []
+			child = self.firstChild
+			while child is not None:
+				children.append(child)
+				child = child.next
+			return children
+		elif self._childAccess == CHILD_ACCESS_SEQUENCE:
+			return []  # The `children` method is expected to be overwritten in this mode.
+		else:
+			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
+	
+	def _get_appModule(self):
+		return self.parent.appModule
+	
+	def _set_appModule(self, value):
+		raise Exception("Just checking")
+	
+	def _get_event_windowHandle(self):
+		return self.parent.windowHandle
+	
+	def _get_event_objectID(self):
+		return self.parent.event_objectID
+	
+	def _get_event_childID(self):
+		return self.parent.event_childID
+	
+	_cache_firstChild = False
+	
+	def _get_firstChild(self):
+		if self._childAccess == CHILD_ACCESS_GETTER:
+			return self.getChild(0)
+		elif self._childAccess == CHILD_ACCESS_ITERATION:
+			return None  # The `firstChild` property is expected to be overwritten in this mode.
+		elif self._childAccess == CHILD_ACCESS_SEQUENCE:
+			return self.children[0]
+		else:
+			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
+	
+	_cache_lastChild = False
+	
+	def _get_lastChild(self):
+		if self._childAccess == CHILD_ACCESS_GETTER:
+			return self._getChild(self.childCount - 1)
+		elif self._childAccess == CHILD_ACCESS_ITERATION:
+			prevChild = currChild = self.firstChild
+			while currChild is not None:
+				prevChild = currChild
+				currChild = currChild.next
+			return prevChild
+		elif self._childAccess == CHILD_ACCESS_SEQUENCE:
+			return self.children[-1]
+		else:
+			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
+	
+# 	def _get_parent(self):
+# 		return self._parent
+# 	
+# 	def _set_parent(self, value):
+# 		self._parent = value
+	
+	def _get_processID(self):
+		return self.parent.processID
+	
+	def _get_windowClassName(self):
+		return self.parent.windowClassName
+	
+	def _get_windowControlID(self):
+		return self.parent.windowControlID
+	
+	def _get_windowHandle(self):
+		return self.parent.windowHandle
+	
+	def _get_windowThreadID(self):
+		return self.parent.windowThreadID
+	
+	def getChild(self, index):
+		if self._childAccess == CHILD_ACCESS_GETTER:
+			return None  # The `getChild` method is expected to be overloaded in this mode.
+		elif self._childAccess == CHILD_ACCESS_ITERATION:
+			child = self.firstChild
+			target = index
+			current = 0
+			while child is not None:
+				if current == target:
+					return child
+				child = child.next
+				current += 1
+		elif self._childAccess == CHILD_ACCESS_SEQUENCE:
+			return self.children[index]
+		else:
+			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
+	
+	def setFocus(self):
+		ti = self.parent.treeInterceptor
+		if isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor):
+			# Normally, when entering browse mode from a descendant (e.g. dialog),
+			# we want the cursor to move to the focus (#3145).
+			# However, we don't want this for fake objects, as these aren't focusable.
+			ti._enteringFromOutside = True
+		# This might get called from a background thread and all NVDA events must run in the main thread.
+		eventHandler.queueEvent("gainFocus", self)
+	
+	def _isEqual(self, obj):
+		return self is obj
+	
+# 	def event_loseFocus(self):
+# 		log.info(f"{self!r}.event_loseFocus", stack_info=True)
+# 		import globalVars
+# 		obj = globalVars.focusObject
+# 		if obj is self:
+# 			while isinstance(obj, FakeObject):
+# 				obj = globalVars.focusAncestors.pop()
+# 				log.info(f"Step up to {_getObjLogInfo(obj)}")
+# 				globalVars.focusObject = obj
+
+# 				parent = globalVars.focusObject.parent
+# 				if parent is None:
+# 					if globalVars.focusObject is self:
+# 						log.error("Parentless focus object: {!r}".format(globalVars.focusObject))
+# 					else:
+# 						log.error("Parentless focus ancestor: {!r}".format(globalVars.focusObject))
+# 					break
+# 				if parent != globalVars.focusAncestors[-1]:
+# 					log.error("Parent missing from focus ancestors: {!r}".format(parent))
+# 					break
+# 				#log.info(f"Step up to {parent!r}(ti={parent.treeInterceptor!r}")
+# 				log.info(f"Step up to {_getObjLogInfo(parent)}")
+# 				globalVars.focusObject = parent
+# 				del globalVars.focusAncestors[-1]
+# 		super(FakeObject, self).event_loseFocus()
+		
+
+class FakeFlowingObject(FakeObject):
+	"""A `FakeObject` that flows with its siblings.
+	
+	This is typically used as content of a `CompoundDocument`.
+	"""
+	
+	def __init__(self, *args, startsFlow=False, endsFlow=False, **kwargs):
+		super(FakeFlowingObject, self).__init__(*args, **kwargs)
+		self._startsFlow = startsFlow
+		self._endsFlow = endsFlow
+	
+	_cache_flowsFrom = False
+	
+	def _get_flowsFrom(self):
+		if self._startsFlow:
+			return None
+		obj = self.previous
+		if obj is not None:
+			return obj
+		try:
+			obj = self.parent.flowsFrom
+		except Exception:
+			pass
+		return obj
+	
+	_cache_flowsTo = False
+	
+	def _get_flowsTo(self):
+		if self._endsFlow:
+			return None
+		obj = self.firstChild
+		if obj is not None:
+			return obj
+		obj = self.next
+		if obj is not None:
+			return obj
+		try:
+			obj = self.parent.flowsTo
+		except Exception:
+			pass
+		return obj
+	
+	def _get_indexInParent(self):
+		try:
+			return self.parent.children.index(self)
+		except Exception:
+			pass
+		return super(FakeFlowingObject, self).indexInParent
+	
+	_cache_next = False
+	
+	def _get_next(self):
+		return self.parent.getChild(self.indexInParent + 1)
+	
+	_cache_previous = False
+	
+	def _get_previous(self):
+		return self.parent.getChild(self.indexInParent - 1)
+
+
+class BaseProxy(FakeObject):
+	"""Base class for objects that selectively proxy attribute access to another object.
+	
+	This implementation only takes care on maintaining the proxied object reference.
+	"""
+	
+	def __init__(self, obj, *args, objPreFinalizeCallback=None, **kwargs):
+		if isinstance(obj, IAccessible.IAccessible):
+			self._obj = lambda args=(
+				obj.event_windowHandle,
+				obj.event_objectID,
+				obj.event_childID
+			): IAccessible.getNVDAObjectFromEvent(*args)
+		elif isinstance(obj, weakref.ReferenceType):
+			self._obj = obj
+		else:
+			self._obj = weakref.ref(obj, objPreFinalizeCallback)
+		super(BaseProxy, self).__init__(*args, **kwargs)
+	
+	_cache_obj = False
+	
+	def _get_obj(self):
+		return self._obj()
+
+
+class ProxyContent(FakeFlowingObject, BaseProxy):
+	
+	def _get_TextInfo(self):
+		return self.obj.TextInfo
+	
+	def _get_basicText(self):
+		return self.obj.basicText
+	
+	def _get_role(self):
+		return self.obj.role
+	
+	def _get_roleText(self):
+		return self.obj.roleText
+	
+	def _get_roleTextBraille(self):
+		return self.obj.roleTextBraille
+	
+	def _get_states(self):
+		return self.obj.states
+	
+	def _get_value(self):
+		return self.obj.value
+	
+	def makeTextInfo(self, *args, **kwargs):
+		return self.obj.makeTextInfo(*args, **kwargs)
+
+
+class TreeCompoundTextInfo(compoundDocuments.TreeCompoundTextInfo):
+	"""A `TreeCompoundTextInfo` that presents all flowable descendants of its root object.
+	
+	Allows custom reporting in speech or braille of (fake) content.
+	"""
+	
+	def expand(self, unit):
+		if unit == textInfos.UNIT_STORY:
+			rootObj = self.obj.rootNVDAObject
+			obj = self._startObj = rootObj.firstChild
+			self._start = obj.makeTextInfo(textInfos.POSITION_FIRST)
+			obj = self._endObj = rootObj.lastChild
+			self._end = obj.makeTextInfo(textInfos.POSITION_LAST)
+			self._normalizeStartAndEnd()
+			return
+		super(TreeCompoundTextInfo, self).expand(unit)
+	
+	def getControlFieldBraille(self, field, ancestors, reportStart, formatConfig):
+		if field.get("roleText") == "columnSeparator":
+			presCat = field.getPresentationCategory(ancestors, formatConfig)
+			field._presCat = presCat
+			if reportStart:
+				return "\u28b8"
+		return super(TreeCompoundTextInfo, self).getControlFieldBraille(
+			field, ancestors, reportStart, formatConfig
+		)
+	
+	def getTextWithFields(self, formatConfig=None):
+		fields = []
+		rootObj = self.obj.rootNVDAObject
+		embedIndex = None
+		for info in self._getTextInfos():
+			field = self._getControlFieldForObject(info.obj, ignoreEditableText=False)
+			if field:
+				fields.append(textInfos.FieldCommand("controlStart", field))
+			if hasattr(info, "_iterTextWithEmbeddedObjects"):
+				genFunc = info._iterTextWithEmbeddedObjects
+			else:
+				# `IA2TextTextInfo` provides an IA2-agnostic implementation.
+				genFunc = IAccessible.IA2TextTextInfo._iterTextWithEmbeddedObjects.__get__(info)
+			for field in genFunc(True, formatConfig=formatConfig):
+				if isinstance(field, str):
+					fields.append(field)
+				elif isinstance(field, int): # Embedded object
+					if embedIndex is None:
+						embedIndex = self._getFirstEmbedIndex(info)
+					else:
+						embedIndex += 1
+					field = info.obj.getChild(embedIndex)
+					controlField = self._getControlFieldForObject(field, ignoreEditableText=False)
+					controlField["content"] = field.name
+					fields.extend((textInfos.FieldCommand("controlStart", controlField),
+						u"\uFFFC",
+						textInfos.FieldCommand("controlEnd", None)))
+				else:
+					fields.append(field)
+			fields.append(textInfos.FieldCommand("controlEnd", None))
+		return fields
+	
+	def _findContentDescendant(self, obj):
+		return obj
+
+	def _getControlFieldForObject(self, obj, ignoreEditableText=True):
+		# Support "roleText", waiting for NVDA #11607 to be released.
+		field = super(TreeCompoundTextInfo, self)._getControlFieldForObject(
+			obj, ignoreEditableText=ignoreEditableText
+		)
+		if field is not None:
+			field["roleText"] = obj.roleText
+			field["roleTextBraille"] = getattr(obj, "roleTextBraille", None)
+			field["_startOfNode"] = True
+		return field
+	
+	def _getObjectPosition(self, obj):
+		return super()._getObjectPosition(obj)
+
+
+class CompoundDocument(compoundDocuments.CompoundDocument):
+	"""A document presenting a given content.
+	
+	Content's element can either be strings or `NVDAObject` instances.
+	Note: This implementation does not keep strong references to the `NVDAObject`
+	instances it presents.
+	"""	
+	TextInfo = TreeCompoundTextInfo
+	
+	def __init__(self, parent, content):
+		children = []
+		if not isinstance(parent, weakref.ProxyType):
+			parent = weakref.proxy(parent)
+		root = FakeObject(parent=parent, children=children)
+		for item in content:
+			if isinstance(item, six.string_types):
+				item = FakeFlowingObject(parent=weakref.proxy(root), basicText=item)
+			elif isinstance(item, FakeObject):
+				pass
+			elif isinstance(item, NVDAObject):
+				item = ProxyContent(parent=weakref.proxy(root), obj=item)
+			else:
+				raise TypeError("Unsupported type in content: {}".format(type(item)))
+			children.append(item)
+		if children:
+			if isinstance(children[0], FakeFlowingObject):
+				children[0]._startsFlow = True
+			if isinstance(children[0], FakeFlowingObject):
+				children[-1]._endsFlow = True
+			for index, child in enumerate(children):
+				if isinstance(child, FakeFlowingObject):
+					continue
+				if index > 0:
+					child.flowsFrom = children[index - 1]
+				if index < len(children) - 1:
+					child.flowsTo = children[index + 1]
+		super(CompoundDocument, self).__init__(root)
+	
+	def makeTextInfo(self, position):
+		if position == textInfos.POSITION_SELECTION:
+			position = textInfos.POSITION_FIRST
+			info = super(CompoundDocument, self).makeTextInfo(position)
+			# TODO: Handle selection within cells
+			return info
+		return super(CompoundDocument, self).makeTextInfo(position)
+	
+	_cache_caretObject = False
+	
+	def _get_caretObject(self):
+		caretObj = super(CompoundDocument, self).caretObject
+		rootObj = self.rootNVDAObject
+		if rootObj == caretObj:
+			return caretObject
+		for child in rootObj.children:
+			if child is caretObj:
+				return caretObj
+			if getattr(child, "obj", None) is caretObj:
+				return child
+		return caretObj
+
+
+class VBufFakeObject(FakeObject):
+	
+	def _get_treeInterceptor(self):
+		return self.parent.treeInterceptor
+	
+# 	def event_loseFocus(self):
+# 		log.info(f"{self!r}.event_loseFocus", stack_info=True)
+# 		import globalVars
+# 		obj = globalVars.focusObject
+# 		if obj is self:
+# 			while isinstance(obj, FakeObject):
+# 				obj = globalVars.focusAncestors.pop()
+# 				log.info(f"Step up to {_getObjLogInfo(obj)}")
+# 				globalVars.focusObject = obj
+
+
+class VBufRootFakeObject(VBufFakeObject):
+	
+	def __init__(self, *args, **kwargs):
+		super(VBufRootFakeObject, self).__init__(*args, **kwargs)
+		self._parent = None
+	
+	_cache_parent = False
+	
+	def _get_parent(self):
+		parent = None
+		for obj in reversed(api.getFocusAncestors()):
+			if isinstance(obj, FakeObject):
+				continue
+			if obj.treeInterceptor is self.treeInterceptor:
+				parent = obj
+				break
+		if parent is None:
+			# Should be a warning, but let's make it "ding" for now…
+			log.error("Could not determine a suitable parent within the focus ancestry.")
+			parent = self.treeInterceptor.rootNVDAObject
+		
+		self._parent = weakref.ref(parent)
+		return parent
+# 		ti = self.treeInterceptor
+# 		
+# 		def gen():
+# 			yield ti._lastFocusObj
+# 			yield eventHandler.lastQueuedFocusObject
+# 			yield self._parent
+# 			yield ti.rootNVDAObject
+# 		
+# 		for obj in gen():
+# 			if obj and obj.treeInterceptor is ti:
+# 				self._parent = obj
+# 				return obj
+	
+	def _set_parent(self, value):
+		if self._parent and self._parent() is value:
+			# Ignoring NVDA's attempt to force-cache the parent.
+			return
+		# Should be a warning, but let's make it "ding" for now…
+		log.error("Parent forced: parent={!r}, self={!r}".format(value, self), stack_info=True)
+		self.parent = value
+
+
+class ColumnSeparator(FakeObject):
+	"""Represents a column separator, as presented on a table row's braille region.
+	"""
+	
+	roleText = "columnSeparator"
+
+
+_region = None
+
+
+class CellRegion(braille.TextInfoRegion):
+	# TODO: Handle cursor routing (select/focus/activate)
+	pass
+
+
+class ColumnSeparatorRegion(braille.Region):
+	
+	def __init__(self, obj):
+		super(ColumnSeparatorRegion, self).__init__()
+		self.obj = obj
+		self.rawText = "\u28b8"
+
+
+class TabularBrailleBuffer(braille.BrailleBuffer):
+	
+	def __init__(self):
+		super(TabularBrailleBuffer, self).__init__(handler=braille.handler)
+	
+	def update(self):
+		self.rawText = ""
+		self.brailleCells = []
+		self.cursorPos = None
+		start = 0
+		for region in self.visibleRegions:
+			region.update()
+			cells = region.brailleCells
+			width = region.width
+			if width is not None:
+				if len(cells) > width:
+					rawEnd = region.brailleToRawPos[width]
+					region.rawText = region.rawText[:rawEnd]
+					del region.rawToBraillePos[rawEnd:]
+					del cells[width:]
+					del region.brailleToRawPos[width:]
+				while len(cells) < width:
+					region.brailleToRawPos.append(len(region.rawText))
+					region.rawToBraillePos.append(len(cells))
+					cells.append(0)
+					region.rawText += " "
+			self.rawText += region.rawText
+			self.brailleCells.extend(cells)
+			if region.brailleCursorPos is not None:
+				self.cursorPos = start + region.brailleCursorPos
+			start += len(cells)
+
+
+class RowRegion(braille.TextInfoRegion):
+		
+	def __init__(self, cell):
+		super(RowRegion, self).__init__(obj=cell)
+		self.hidePreviousRegions = True
+		self.buffer = TabularBrailleBuffer()
+		self.windowNumber = None
+		self.maxWindowNumber = None
+		self.row = cell.row
+		self.table = self.row.table
+		#global _region
+		#_region = self
+	
+	def getColumns(self):
+		#from pprint import pformat
+		cells = []
+		for colNum, colSpan, cell in self.row._iterCells():
+			cells.append(cell)
+		#log.info(f"cells: {pformat(cells, indent=2)}")
+		columns = []
+		displaySize = braille.handler.displaySize
+		winNum = 0
+		winSize = 0
+		for index, cell in enumerate(cells):
+			width = cell.columnWidthBraille
+			while True:
+				if width is None:
+					# No fixed width: Make this cell the last of its window.
+					columns.append((winNum, width, cell))
+					winNum += 1
+					winSize = 0
+					break
+				elif winSize + width + 1 <= displaySize:
+					# Append this fixed-width cell to the current window.
+					winSize += width + 1
+					columns.append((winNum, width, cell))
+					columns.append((winNum, 1, ColumnSeparator(parent=cell.parent)))
+					if winSize == displaySize:
+						# Move on to the next window
+						winNum += 1
+						winSize = 0
+					break
+				elif winSize:
+					# Not enough room in the current non-empty window:
+					# Expand the last cell and move on to the next window.
+					lastWinNum, lastWidth, lastCell = columns[-2]
+					lastWidth += displaySize - winSize
+					columns[-2] = (lastWinNum, lastWidth, lastCell)
+					winNum += 1
+					winSize = 0
+					continue
+				else:
+					# Not enough room in the current empty window:
+					# Truncate to the display size and move on to the next window.
+					columns.append(winNum, displaySize - 1, cell)
+					columns.append((winNum, 1, ColumnSeparator(parent=cell.parent)))
+					winNum += 1
+					winSize = 0
+					break
+		#log.info(f"columns: {pformat(columns, indent=4)}")
+		return columns
+	
+	def getWindowColumns(self):
+		columns = []
+		lastWinNum = 0
+		for winNum, width, obj in self.getColumns():
+			self.maxWindowNumber = winNum
+			if self.windowNumber is None:
+				if columns and winNum != lastWinNum:
+					columns = []
+				lastWinNum = winNum
+				columns.append((width, obj))
+				if obj == self.obj:
+					self.windowNumber = winNum
+			elif winNum == self.windowNumber:
+				columns.append((width, obj))
+			elif columns:
+				break
+		return columns
+	
+	def iterWindowRegions(self):
+		for width, obj in self.getWindowColumns():
+			if isinstance(obj, Cell):
+				region = CellRegion(obj)
+			elif isinstance(obj, ColumnSeparator):
+				region = ColumnSeparatorRegion(obj)
+			else:
+				region = braille.NVDAObjectRegion(obj)
+			region.width = width
+			yield region
+	
+	def routeTo(self, braillePos):
+		self.buffer.routeTo(braillePos)
+	
+	def update(self):
+		if self.buffer.regions:
+			return
+		buffer = self.buffer
+		buffer.regions = list(self.iterWindowRegions())
+		buffer.update()
+		self.rawText = buffer.windowRawText
+		self.brailleCells = buffer.windowBrailleCells
+		self.cursorPos = buffer.cursorWindowPos
+	
+	def previousLine(self, start=False):
+		# Pan left rather than moving to the previous line.
+		buffer = self.buffer
+		if buffer._previousWindow():
+			self.rawText = buffer.windowRawText
+			self.brailleCells = buffer.windowBrailleCells
+			self.cursorPos = buffer.cursorWindowPos
+		elif self.windowNumber:
+			self.windowNumber -= 1
+			self.update()
+		else:
+			return
+		braille.handler.mainBuffer.update()
+		braille.handler.mainBuffer.updateDisplay()
+	
+	def nextLine(self):
+		# Pan right rather than moving to the next line.
+		buffer = self.buffer
+		if buffer._nextWindow():
+			self.rawText = buffer.windowRawText
+			self.brailleCells = buffer.windowBrailleCells
+			self.cursorPos = buffer.cursorWindowPos
+		if self.windowNumber < self.maxWindowNumber:
+			self.windowNumber += 1
+			self.update()
+		else:
+			return
+		braille.handler.mainBuffer.update()
+		braille.handler.mainBuffer.updateDisplay()
+
+
+class Cell(ScriptableObject):
+	"""Table Row.
+	
+	This class can be used as an overlay to an NVDAObject.
+	"""
+	
+	cachePropertiesByDefault = True
+	role = controlTypes.ROLE_TABLECELL
+	
+	def __repr__(self):
+		try:
+			tableID = self.tableID
+		except Exception:
+			tableID = None
+		try:
+			rowNumber = self.rowNumber
+		except Exception:
+			rowNumber = None
+		try:
+			columnNumber = self.columnNumber
+		except Exception:
+			columnNumber = None
+		return "<Cell {}/[{}, {}]>".format(tableID, rowNumber, columnNumber)
+	
+	def _get_columnWidthBraille(self):
+		return self.table._tableConfig.getColumnWidthBraille(self.rowNumber, self.columnNumber)
+	
+	def _set_columnWidthBraille(self, value):
+		func = getattr(self.row, "_setColumnWidthBraille", None)
+		if func is not None:
+			return func(self.columnNumber)
+		func = getattr(table, "_setColumnWidthBraille", None)
+		if func is not None:
+			func(self.columnNumber, value)
+		raise NotImplementedError
+	
+	_cache_row = False
+	
+	def _get_row(self):
+		return self.parent
+	
+	def _get_states(self):
+		states = self.parent.states.copy()
+		try:
+			location = self.location
+		except NotImplementedError:
+			location = None
+		if location and location.width == 0:
+			states.add(controlTypes.STATE_INVISIBLE)
+		states.discard(controlTypes.STATE_CHECKED)
+		return states
+	
+	_cache_table = False
+	
+	def _get_table(self):
+		return self.row.table
+	
+	def _get_tableID(self):
+		return self.table.tableID
+	
+	def getBrailleRegions(self, review=False):
+		if review:
+			# Review this cell.
+			raise NotImplementedError
+		else:
+			# Render the whole row.
+			return [RowRegion(cell=self),]
+	
+	def _isEqual(self, obj):
+		try:
+			return (
+				self.table == obj.table
+				and self.rowNumber == obj.rowNumber
+				and self.columnNumber == obj.columnNumber
+			)
+		except Exception:
+			return False
+
+
+class FakeCell(Cell, FakeObject):
+	"""Table Cell.
+	
+	Extend this class when there are no real control corresponding to the cell.  
+	"""
+	
+	firstChild = None
+	
+	def __init__(self, *args, row=None, **kwargs):
+		if "parent" not in kwargs:
+			kwargs["parent"] = row
+		else:
+			kwargs["row"] = row
+		super(FakeCell, self).__init__(*args, **kwargs)
+		if not self.parent:
+			log.error(f"no parent! args={args}, kwargs={kwargs}")
+		self._trackingInfo = [f"{self!r}({id(self)})"]
+	
+	def _get_basicText(self):
+		func = getattr(self.row, "_getCellBasicText", None)
+		if func is not None:
+			return func(self.columnNumber)
+		func = getattr(self.table, "_getCellBasicText", None)
+		if func is not None:
+			return func(self.rowNumber, self.columnNumber)
+		raise NotImplementedError
+
+	def _get_columnHeaderText(self):
+		func = getattr(self.row, "_getColumnHeaderText", None)
+		if func is not None:
+			return func(self.columnNumber)
+		func = getattr(self.table, "_getColumnHeaderText", None)
+		if func is not None:
+			return func(self.columnNumber)
+		raise NotImplementedError
+	
+	def _get_location(self):
+		func = getattr(self.row, "_getCellLocation", None)
+		if func is not None:
+			return func(self.columnNumber)
+		func = getattr(self.table, "_getCellLocation", None)
+		if func is not None:
+			return func(self.rowNumber, self.columnNumber)
+		raise NotImplementedError
+	
+	_cache_next = False
+	
+	def _get_next(self):
+		row = self.row
+		if isinstance(row, FakeRow):
+			return super(FakeCell, self).next
+		return row._getCell(self.columnNumber + 1)
+	
+	_cache_previous = False
+	
+	def _get_previous(self):
+		row = self.row
+		if isinstance(row, FakeRow):
+			return super(FakeCell, self).previous
+		return row._getCell(self.columnNumber - 1)
+	
+	def _get_rowNumber(self):
+		return self.row.rowNumber
+
+
+class TextInfoDrivenFakeCell(FakeCell):
+		
+	def __del__(self):
+		self.info = None
+		super(TextInfoDrivenFakeCell, self).__del__()
+	
+	def _get_field(self):
+		info = self.info
+		if not info:
+			return None
+		field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECELL)
+		if field is None:
+			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECOLUMNHEADER)
+		if field is None:
+			from pprint import pformat
+			log.error(f"twf={pformat(info.getTextWithFields(), indent=4)}", stack_info=True)
+		return field
+	
+	def _get_basicText(self):
+		if self.info is None:
+			return None
+		return self.info.text
+	
+	def _get_columnHeaderText(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-columnheadertext")
+	
+	def _get_columnNumber(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-columnnumber")
+	
+	def _get_columnSpan(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-columnsspanned")
+	
+	def _get_location(self):
+		if self.info is None:
+			return None
+		return self.info.NVDAObjectAtStart.location
+	
+	def _get_rowNumber(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-rownumber")
+	
+	def _get_rowSpan(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-rowsspanned")
+	
+	def makeTextInfo(self, position):
+		if self.info is None:
+			return None
+		obj = self.info.NVDAObjectAtStart
+		info = obj.makeTextInfo(obj)
+		if (
+			position == textInfos.POSITION_SELECTION
+			and self.columnNumber != self.table._currentColumnNumber
+		):
+			info.collapse()
+		# Store a strong reference to keep the volatile `NVDAObject` alive.
+		info.obj = obj
+		info._trackingInfo = [f"f{self!r}({id(self)}).makeTextinfo({position!r})"]
+		obj._trackingInfo = [f"f{self!r}.makeTextinfo({position!r}).obj"]
+		return info
+
+
+class VBufFakeCell(TextInfoDrivenFakeCell, VBufFakeObject):
+	
+	def event_gainFocus(self):
+		log.info(f"@@@ event_gainFocus({self!r})")
+		sel = self.info.copy()
+		sel.collapse()
+		self.treeInterceptor.selection = sel
+		# Not calling super avoids `reportFocus`
+		braille.handler.handleGainFocus(self)
+		brailleInput.handler.handleGainFocus(self)
+		vision.handler.handleGainFocus(self)
+
+
+class Row(ScriptableObject):
+	"""Table Row.
+	
+	This class can be used as an overlay to an NVDAObject.
+	"""
+	
+	cachePropertiesByDefault = True
+	role = controlTypes.ROLE_TABLEROW
+
+	def __repr__(self):
+		try:
+			tableID = self.tableID
+		except Exception:
+			tableID = None
+		try:
+			rowNum = self.rowNumber
+		except Exception:
+			rowNum = None
+		return "<Row {}/[{}]>".format(tableID, rowNum)
+	
+	def _get_columnCount(self):
+		return self.table.columnCount
+	
+	_cache_focusRedirect = False
+	
+	def _get_focusRedirect(self):
+		obj = self._currentCell
+		# Oddly, NVDA's EventExecutor does not care about chained redirection
+		return obj.focusRedirect or obj
+	
+	_cache_table = False
+	
+	def _get_table(self):
+		return self.parent
+	
+	def _get_tableID(self):
+		return self.table.tableID
+	
+	_cache__currentCell = False
+	
+	def _get__currentCell(self):
+		return self._getCell(self.table._currentColumnNumber)
+	
+	def _getCell(self, columnNumber):
+		for colNum, colSpan, cell in self._iterCells():
+			if colNum <= columnNumber < colNum + colSpan:
+				return cell
+	
+	def _iterCells(self):
+		obj = self.firstChild
+		while obj:
+			colNum = obj.columnNumber
+			colSpan = getColumnSpanSafe(obj)
+			yield colNum, colSpan, obj
+			obj = obj.next
+
+
+CELL_ACCESS_CHILDREN = "children"
+CELL_ACCESS_MANAGED = "managed"
+
+
+class FakeRow(Row, FakeObject):
+	"""Table Row.
+	
+	Extend this class when there are no real control corresponding to the row.  
+	"""
+	
+	CellClass = FakeCell
+	_childAccess = CHILD_ACCESS_GETTER
+	
+	def __init__(self, *args, table=None, rowNumber=None, **kwargs):
+		if "parent" not in kwargs:
+			kwargs["parent"] = table
+		else:
+			kwargs["table"] = table
+		super(FakeRow, self).__init__(*args, rowNumber=rowNumber, **kwargs)
+		self._cache = {}
+	
+	def _get_columnCount(self):
+		return self.table.columnCount
+	
+	def _get__cellAccess(self):
+		return getattr(self.table, "_cellAccess", CELL_ACCESS_CHILDREN)
+		
+	def _createCell(self, *args, **kwargs):
+		return self.CellClass(*args, row=self, **kwargs)
+	
+	def _iterCells(self):
+		_cellAccess = self._cellAccess
+		if _cellAccess == CELL_ACCESS_CHILDREN:
+			for colNum, colSpan, cell in super(FakeRow, self)._iterCells():
+				yield colNum, colSpan, cell
+		elif _cellAccess == CELL_ACCESS_MANAGED:
+			for colNum in range(1, self.columnCount + 1):
+				cell = self._createCell(columnNumber=colNum) 
+				yield colNum, getColumnSpanSafe(cell), cell
+		else:
+			raise ValueError("_cellAccess={}".format(repr(_cellAccess)))
+
+
+class TextInfoDrivenFakeRow(FakeRow):
+	
+	CellClass = TextInfoDrivenFakeCell
+	_childAccess = CHILD_ACCESS_ITERATION
+	
+	def __init__(self, *args, table=None, rowNumber=None, **kwargs):
+		super(TextInfoDrivenFakeRow, self).__init__(*args, table=table, rowNumber=rowNumber, **kwargs)
+		self._cache = weakref.WeakKeyDictionary()
+	
+	def _getCell(self, columnNumber):
+		# Fetch and catch the whole row as long as the last returned cell stays alive.
+		oldCell, (colNum, colSpan, cache) = next(iter(self._cache.items()), (None, (None, None, {})))
+		if oldCell is not None:
+			if colNum <= columnNumber < colNum + colSpan:									
+				return oldCell
+			del self._cache[oldCell]
+			oldColNum, oldColSpan = colNum, colSpan
+		newCell = newColNum = newColSpan = None
+		for (colNum, colSpan), cell in cache.items():
+			if colNum <= columnNumber < colNum + colSpan:
+				newColNum, newColSpan, newCell = colNum, colSpan, cell
+				break
+		if newCell is not None:
+			del cache[newColNum, newColSpan]
+			# The previously returned cell was not in the cache
+			cache[(oldColNum, oldColSpan)] = oldCell
+		else:
+			cache.clear()
+			for colNum, colSpan, cell in self._iterCells():
+				if colNum <= columnNumber < colNum + colSpan:
+					# Do not return until the whole row has been cached
+					newColNum, newColSpan, newCell = colNum, colSpan, cell
+				else:
+					# Only cache the cells that are not returned
+					cache[colNum, colSpan] = cell
+		if newCell is not None:
+			# Keep the cache as long as the returned cell is alive
+			self._cache[newCell] = (newColNum, newColSpan, cache)
+		return newCell
+	
+	def _iterCells(self):
+		infos = self.table._iterCellsTextInfos(self.rowNumber)
+		while True:
+			try:
+				info = next(infos, None)
+			except RuntimeError:
+				# The underlying call to `VirtualBuffer._iterTableCells` raises `StopIteration`
+				# when calling `next` unguarded line 605.
+				return
+			if info is None:
+				return
+			cell = self._createCell(info=info)
+			yield cell.columnNumber, getColumnSpanSafe(cell), cell
+
+
+class VBufFakeRow(TextInfoDrivenFakeRow, VBufFakeObject):
+	
+	CellClass = VBufFakeCell
+
+
+AXIS_ROWS = "row"
+AXIS_COLUMNS = "column"
+
+DIRECTION_NEXT = "next"
+DIRECTION_PREVIOUS = "previous"
+
+
+class TableManager(ScriptableObject):
+	"""Table UX.
+	
+	This class can be used as an overlay to an NVDAObject.
+	"""
+	
+	scriptCategory = SCRIPT_CATEGORY
+	cachePropertiesByDefault = True
+	role = controlTypes.ROLE_TABLE
+	
+	def __init__(self, *args, **kwargs):
+		super(TableManager, self).__init__(*args, **kwargs)
+		self.initOverlayClass()
+	
+	def initOverlayClass(self):
+		self._currentColumnNumber = 1
+		self._currentRowNumber = 1
+		self._markedColumnNumbers = []
+		#global _tableManager
+		#_tableManager = self
+	
+	_cache_focusRedirect = False
+	
+	def _get_focusRedirect(self):
+		obj = self._currentRow
+		# Oddly, NVDA's `executeEvent` does not care about chained redirection
+		return obj.focusRedirect or obj
+	
+	_cache__currentCell = False
+	
+	def _get__currentCell(self):
+		row = self._currentRow
+		if row is None:
+			return None
+		return row._currentCell
+	
+	_cache__currentRow = False
+	
+	def _get__currentRow(self):
+		return self._getRow(self._currentRowNumber)
+	
+	def reportFocus(self):  # TODO
+		super(TableManager, self).reportFocus()
+	
+# 	def setFocus(self):
+# 		focusRedirect = self.focusRedirect
+# 		if focusRedirect is not None:
+# 			focusRedirect.setFocus()
+# 			return
+# 		log.error("There is no table cell to focus")
+	
+	def _getCell(self, rowNumber, columnNumber):
+		row = self._getRow(rowNumber)
+		if row is None:
+			return None
+		return row._getCell(columnNumber)
+	
+	def _getRow(self, rowNumber):
+		# TODO: Implement a base children lookup?
+		raise NotImplementedError
+		
+	def _moveToColumn(self, columnNumber, cell=None):
+		if cell is None:
+			cell = self._getCell(self._currentRowNumber, columnNumber)
+		if cell is None:
+			if not self._currentRow:
+				# Translators: Reported when a table is empty.
+				ui.message(_("Table empty"))
+				return
+			ui.message(_("Edge of table"))
+			return False
+		self._currentColumnNumber = columnNumber
+		cell.setFocus()
+		self._reportColumnChange()
+	
+	def _moveToRow(self, rowNumber, row=None):
+		if row is None:
+			row = self._getRow(rowNumber)
+		if row is None:
+			if not self._currentRow:
+				# Translators: Reported when a table is empty.
+				ui.message(_("Table empty"))
+				return False
+			# Translators: Emitted when hitting the edge of a table
+			ui.message(_("Edge of table"))
+			return
+		self._currentRowNumber = rowNumber
+		row.setFocus()
+		self._reportRowChange()
+	
+	def _reportColumnChange(self):
+		cell = self._currentCell
+		if cell is None:
+			# Translators: Reported when a table is empty.
+			ui.message(_("Table empty"))
+			return
+		parts = []
+		header = cell.columnHeaderText
+		if not header:
+			# Translators: Reported as fail-back to a missing column header
+			header = _("Col #{columnNumber}").format(columnNumber=cell.columnNumber)
+		parts.append(header)
+		parts.append(cell.basicText)
+		msg = "\n".join(parts)
+		speech.speakMessage(msg)
+	
+	def _reportRowChange(self):
+		row = self._currentRow
+		if row is None:
+			# Translators: Reported when a table is empty.
+			ui.message(_("Table empty"))
+			return
+		columnNumbers = self._markedColumnNumbers[:]
+		if self._currentColumnNumber not in columnNumbers:
+			columnNumbers.append(self._currentColumnNumber)
+		content = []
+		for columnNumber in sorted(columnNumbers):
+			cell = self._getCell(self._currentRowNumber, columnNumber)
+			if columnNumber == self._currentColumnNumber:
+				content.append(cell.basicText)
+			else:
+				content.append(cell.basicText)
+		try:
+			doc = CompoundDocument(self, content)
+		except Exception:
+			log.exception("Error creating CompoundDocument with content={}".format(repr(content)))
+			raise
+		info = doc.makeTextInfo(textInfos.POSITION_ALL)
+		# Store a strong reference to keep the `FakeObject` alive.
+		info.obj = doc
+		speech.speakTextInfo(info)
+	
+	def _tableMovementScriptHelper(self, axis, direction):
+		"""Helper used to incrementally move along table axis.
+		
+		axis: Either AXIS_COLUMNS or AXIS_ROWS
+		direction: Either DIRECTION_NEXT or DIRECTION_PREVIOUS
+		"""
+		if axis == AXIS_ROWS:
+			getNum = lambda obj: obj.rowNumber
+			getObj = lambda num: self._getRow(num)
+			getSpan = getRowSpanSafe
+			moveTo = self._moveToRow
+		elif axis == AXIS_COLUMNS:
+			getNum = lambda obj: obj.columnNumber
+			getObj = lambda num: self._getCell(self._currentRowNumber, num)
+			getSpan = getColumnSpanSafe
+			moveTo = self._moveToColumn
+		else:
+			ValueError("axis={}".format(repr(axis)))
+		fromNum = getNum(self._currentCell)
+		if direction == DIRECTION_NEXT:
+			fromObj = getObj(fromNum)
+			span = getSpan(fromObj)
+			toNum = fromNum + span
+			toObj = getObj(toNum)
+		elif direction == DIRECTION_PREVIOUS:
+			fromObj = getObj(fromNum)
+			toNum = fromNum - 1
+			while True:
+				toObj = getObj(toNum)
+				if toObj is fromObj and toNum > 1:
+					toNum -= 1
+					continue
+				break
+		else:
+			raise ValueError("direction={!r}".format(direction))
+		if toObj is None:
+			# Translators: Emitted when hitting the edge of a table
+			ui.message(_("Edge of table"))
+			return
+		toNum_ = toNum
+		toNum = getNum(toObj)
+		moveTo(getNum(toObj), toObj)
+	
+	def script_moveToFirstColumn(self, gesture):
+		self._moveToColumn(1)
+	
+	script_moveToFirstColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToFirstColumn.__doc__ = _("Go to the first column")
+	
+	def script_moveToLastColumn(self, gesture):
+		self._moveToColumn(self.columnCount)
+	
+	script_moveToLastColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToLastColumn.__doc__ = _("Go to the last column")
+	
+	def script_moveToNextColumn(self, gesture):
+		self._tableMovementScriptHelper(AXIS_COLUMNS, DIRECTION_NEXT)
+	
+	script_moveToNextColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToNextColumn.__doc__ = _("Go to the next column")
+	
+	def script_moveToNextMarkedColumn(self, gesture):
+		columnNumber = self._currentColumnNumber
+		if not columnNumber:
+			# Translators: Reported when a table is empty.
+			ui.message(_("Table empty"))
+			return
+		curColIsMarked = False
+		for marked in sorted(self._markedColumnNumbers):
+			if marked > columnNumber:
+				self._moveToColumn(marked)
+				return
+			if marked == columnNumber:
+				curColIsMarked = True
+		# Translators: Emitted when attempting to move to a marked column
+		speech.speakMessage(_("No next marked column"))
+		if curColIsMarked:
+			# Translators: Emitted when attempting to move to a marked column
+			speech.speakMessage(_("The current column is marked"))
+	
+	script_moveToNextMarkedColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToNextMarkedColumn.__doc__ = _("Go to the previous marked column")
+	
+	def script_moveToPreviousColumn(self, gesture):
+		self._tableMovementScriptHelper(AXIS_COLUMNS, DIRECTION_PREVIOUS)
+	
+	script_moveToPreviousColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToPreviousColumn.__doc__ = _("Go to the previous column")
+	
+	def script_moveToPreviousMarkedColumn(self, gesture):
+		columnNumber = self._currentColumnNumber
+		curColIsMarked = False
+		for marked in reversed(sorted(self._markedColumnNumbers)):
+			if marked < columnNumber:
+				self._moveToColumn(marked)
+				return
+			if marked == columnNumber:
+				curColIsMarked = True
+		# Translators: Emitted when attempting to move to a marked column
+		speech.speakMessage(_("No next marked column"))
+		if curColIsMarked:
+			# Translators: Emitted when attempting to move to a marked column
+			speech.speakMessage(_("The current column is marked"))
+	
+	script_moveToPreviousMarkedColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToPreviousMarkedColumn.__doc__ = _("Go to the previous marked column")
+	
+	def script_moveToFirstRow(self, gesture):
+		self._moveToRow(1)
+	
+	script_moveToFirstRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToFirstRow.__doc__ = _("Go to the first row")
+	
+	def script_moveToLastRow(self, gesture):
+		# rowCount has been found to be unreliable with some implementations
+		rowNumber = self.rowCount 
+		while True:
+			row = None
+			cell = None
+			try:
+				row = self._getRow(rowNumber)
+				cell = row._getCell(self._currentColumnNumber)
+			except Exception:
+				pass
+			if row is None or cell is None:
+				if rowNumber > self._currentRowNumber + 1:
+					rowNumber -= 1
+					continue
+			break
+		self._moveToRow(rowNumber, row=row)
+	
+	script_moveToLastRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToLastRow.__doc__ = _("Go to the last row")
+	
+	def script_moveToNextRow(self, gesture):
+		self._tableMovementScriptHelper(AXIS_ROWS, DIRECTION_NEXT)
+	
+	script_moveToNextRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToNextRow.__doc__ = _("Go to the next row")
+	
+	def script_moveToPreviousRow(self, gesture):
+		self._tableMovementScriptHelper(AXIS_ROWS, DIRECTION_PREVIOUS)
+	
+	script_moveToPreviousRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToPreviousRow.__doc__ = _("Go to the previous row")
+	
+	def script_selectRow(self, gesture):  # TODO
+		raise NotImplementedError()
+	
+	script_selectRow.canPropagate = True
+	# Translators: The description of a command.
+	script_selectRow.__doc__ = _("Select the current row, if supported")
+	
+	def script_toggleMarkedColumn(self, gesture):
+		currentColumnNumber = self._currentColumnNumber
+		if not currentColumnNumber:
+			# Translators: Reported when a table is empty.
+			ui.message(_("Table empty"))
+			return
+		try:
+			self._markedColumnNumbers.remove(currentColumnNumber)
+			# Translators: Reported when toggling marked columns
+			ui.message(_("Column {} unmarked").format(currentColumnNumber))
+		except ValueError:
+			self._markedColumnNumbers.append(currentColumnNumber)
+			# Translators: Reported when toggling marked columns
+			ui.message(_("Column {} marked").format(currentColumnNumber))
+	
+	script_toggleMarkedColumn.canPropagate = True
+	# Translators: The description of a command.
+	script_toggleMarkedColumn.__doc__ = _("Toggle marked column")
+	
+	__gestures = {
+		"kb:upArrow": "moveToPreviousRow",
+		"kb:downArrow": "moveToNextRow",
+		"kb:leftArrow": "moveToPreviousColumn",
+		"kb:rightArrow": "moveToNextColumn",
+		"kb:home": "moveToFirstColumn",
+		"kb:end": "moveToLastColumn",
+		"kb:control+home": "moveToFirstRow",
+		"kb:control+end": "moveToLastRow",
+		"kb:control+leftArrow": "moveToPreviousMarkedColumn",
+		"kb:control+rightArrow": "moveToNextMarkedColumn",
+		"kb:control+space": "toggleMarkedColumn",
+		"kb:shift+space": "selectRow",
+	}
+
+
+class FakeTableManager(TableManager, FakeObject):
+	"""Table UX.
+	
+	Extend this class when there are no real control corresponding to the table.  
+	"""
+	
+	RowClass = FakeRow
+	_childAccess = CHILD_ACCESS_ITERATION
+	
+# 	def __init__(self, *args, parent=None, **kwargs):
+# 		super(FakeTableManager, self).__init__(*args, parent=parent, **kwargs)
+	def __init__(self, *args, **kwargs):
+		super(FakeTableManager, self).__init__(*args, **kwargs)
+		self._rows = {}
+	
+	_cache_firstChild = False
+	
+	def _get_firstChild(self):
+		return self._getRow(1)
+
+	def _get_tableID(self):
+		return id(self)		
+	
+	def _canCreateRow(self, rowNumber):
+		return 1 <= rowNumber <= self.rowCount
+	
+	def _createRow(self, *args, **kwargs):
+		return self.RowClass(table=self, *args, **kwargs)
+	
+	def _getRow(self, rowNumber):
+		weakRow = self._rows.get(rowNumber)
+		row = weakRow() if weakRow is not None else None
+		if row is None and self._canCreateRow(rowNumber):
+			row = self._createRow(rowNumber=rowNumber)
+			if row is not None:
+				self._rows[rowNumber] = weakref.ref(row)
+		if row is None or not row._currentCell:
+			self._rows.pop(rowNumber, None)
+			return None
+		return row
+
+
+def getField(info, command, **criteria):
+	if info.isCollapsed:
+		info = info.copy()
+		info.expand(textInfos.UNIT_CHARACTER)
+	for cmdField in reversed(info.getTextWithFields()):
+		if not (
+			isinstance(cmdField, textInfos.FieldCommand)
+			and cmdField.command == command
+		):
+			continue
+		field = cmdField.field
+		for key, value in criteria.items():
+			if key in field and field[key] != value:
+				break
+		else:
+			return field
+
+
+class VBufFakeTableManager(FakeTableManager, VBufRootFakeObject):
+	
+	RowClass = VBufFakeRow
+	
+	def __init__(self, *args, ti=None, startPos=None, **kwargs):
+		super(VBufFakeTableManager, self).__init__(*args, ti=ti, startPos=startPos, **kwargs)
+		self._cache = None
+		self._lastRow = None
+	
+	def _get_field(self):
+		info = self.startPos if self.startPos else self._currentCell.info
+		return getField(info, "controlStart", role=controlTypes.ROLE_TABLE)
+	
+	def _get_columnCount(self):
+		count = self.field.get("table-columncount")
+		if isinstance(count, six.string_types):
+			count = int(count)
+		return count
+	
+	def _get_rowCount(self):
+		count = self.field.get("table-rowcount")
+		if isinstance(count, six.string_types):
+			count = int(count)
+		return count
+	
+	@catchAll(log)
+	def getScript(self, gesture):
+		func = super(VBufFakeTableManager, self).getScript(gesture)
+		if func is not None:
+			return func
+	
+	def _canCreateRow(self, rowNumber):
+		return True
+	
+	def _iterCellsTextInfos(self, rowNumber):
+		return self.treeInterceptor._iterTableCells(self.tableID, row=rowNumber)
+	
+	def script_disablePassThrough(self, gesture):
+		self.treeInterceptor.script_disablePassThrough(gesture)
+		
+	script_disablePassThrough.canPropagate = True
+	
+	__gestures = {
+		"kb:escape": "disablePassThrough"
+	}
+
+
+class StaticFakeTableManager(FakeTableManager):
+	"""Sample `FakeTableManager` implementation.
+	"""
+	
+	_cellAccess = CELL_ACCESS_MANAGED
+	
+	def __init__(self, *args, parent=None, headers=None, data=None, **kwargs):
+		super(StaticFakeTableManager, self).__init__(*args, parent=parent, **kwargs)
+		self._headers = headers
+		self._data = data
+	
+	def _get_columnCount(self):
+		return max(len(row) for row in self._data)
+	
+	def _get_rowCount(self):
+		return len(self._data)
+		
+	def _getCellBasicText(self, rowNumber, columnNumber):
+		return self._data[rowNumber - 1][columnNumber - 1]
+	
+	def _getColumnHeaderText(self, columnNumber):
+		return self._headers[columnNumber - 1]
+
+
+def test():
+	t = StaticFakeTableManager(
+		parent=api.getFocusObject(),
+		headers=["Col A", "Col B", "Col C"],
+		data=[
+			["Cell A1", "Cell B1", "Cell C1"],
+			["Cell A2", "Cell B2", "Cell C2"],
+			["Cell A3", "Cell B3", "Cell C3"],
+		]
+	)
+	t.setFocus()
