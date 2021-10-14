@@ -25,7 +25,7 @@
 # Get ready for Python 3
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.10.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -36,17 +36,26 @@ import addonHandler
 import api
 from baseObject import ScriptableObject
 import braille
+import brailleInput
 import config
 import controlTypes
 from logHandler import log
+import queueHandler
+import scriptHandler
 import speech
 import textInfos
 import ui
+import vision
 
+from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepeatCount
+from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
+
+from .coreUtils import translate
 from .compoundDocuments import CompoundDocument
-from .braille import TabularBrailleBuffer
+from .brailleUtils import TabularBrailleBuffer
 from .fakeObjects import FakeObject
-from .utils import getColumnSpanSafe, getRowSpanSafe
+from .scriptUtils import getScriptGestureHint
+from .tableUtils import getColumnSpanSafe, getRowSpanSafe
 
 
 addonHandler.initTranslation()
@@ -57,7 +66,25 @@ SCRIPT_CATEGORY = "TableHandler"
 
 class CellRegion(braille.TextInfoRegion):
 	# TODO: Handle cursor routing (select/focus/activate)
-	pass
+	
+	def routeTo(self, braillePos):
+		cell = self.obj
+		table = cell.table
+		colNum = cell.columnNumber
+		if not colNum == table._currentColumnNumber:
+			table._moveToColumn(colNum, cell=cell)
+			return
+		super(CellRegion, self).routeTo(braillePos)
+	
+	def _getSelection(self):
+		info = super(CellRegion, self)._getSelection()
+		cell = self.obj
+		if cell.columnNumber == cell.table._currentColumnNumber:
+			#log.warning("expanding")
+			info.expand(textInfos.UNIT_STORY)
+		#else:
+		#	log.info("not expanding")
+		return info
 
 
 class ColumnSeparatorRegion(braille.Region):
@@ -227,7 +254,7 @@ class Cell(ScriptableObject):
 			columnNumber = self.columnNumber
 		except Exception:
 			columnNumber = None
-		return "<Cell {}/[{}, {}]>".format(tableID, rowNumber, columnNumber)
+		return "<Cell {}/[{}, {}] {}>".format(tableID, rowNumber, columnNumber, id(self))
 	
 	def _get_columnWidthBraille(self):
 		return self.table._tableConfig.getColumnWidth(self.rowNumber, self.columnNumber)
@@ -276,6 +303,31 @@ class Cell(ScriptableObject):
 			)
 		except Exception:
 			return False
+	
+	def event_gainFocus(self):
+		# Not calling super avoids `reportFocus`
+		braille.handler.handleGainFocus(self)
+		brailleInput.handler.handleGainFocus(self)
+		vision.handler.handleGainFocus(self)
+		
+		table = self.table
+		if not getattr(table, "_receivedFocusEntered", False):
+			if not getattr(table, "_hasFocusEntered", False):
+				table._reportFocusEntered()
+				table._hasFocusEntered = True
+	
+	def event_loseFocus(self):
+		table = self.table
+		if not getattr(table, "_receivedFocusEntered", False):
+			
+			def loseFocus_trailer():
+				focus = api.getFocusObject()
+				if getattr(focus, "table", None) is not self.table:
+					table._hasFocusEntered = False
+			
+			queueHandler.queueFunction(queueHandler.eventQueue, loseFocus_trailer)
+		
+		super(Cell, self).event_loseFocus()
 
 
 class Row(ScriptableObject):
@@ -301,7 +353,7 @@ class Row(ScriptableObject):
 	def _get_columnCount(self):
 		return self.table.columnCount
 	
-	_cache_focusRedirect = False
+	_cache_focusRedirect = True
 	
 	def _get_focusRedirect(self):
 		obj = self._currentCell
@@ -319,7 +371,10 @@ class Row(ScriptableObject):
 	_cache__currentCell = False
 	
 	def _get__currentCell(self):
-		return self._getCell(self.table._currentColumnNumber)
+		curNum = self.table._currentColumnNumber
+		if curNum is None:
+			return None
+		return self._getCell(curNum)
 	
 	def _getCell(self, columnNumber):
 		for colNum, colSpan, cell in self._iterCells():
@@ -333,6 +388,10 @@ class Row(ScriptableObject):
 			colSpan = getColumnSpanSafe(obj)
 			yield colNum, colSpan, obj
 			obj = obj.next
+	
+	def event_focusEntered(self):
+		# Prevent execution of the default handler
+		pass
 
 
 AXIS_ROWS = "row"
@@ -359,11 +418,12 @@ class TableManager(ScriptableObject):
 	def initOverlayClass(self):
 		self._currentColumnNumber = 1
 		self._currentRowNumber = 1
-		self._markedColumnNumbers = []
+		self._markedColumnNumbers = {}
 		#global _tableManager
 		#_tableManager = self
 	
-	_cache_focusRedirect = False
+	# The property is requested twice in a row by `eventHandler.executeEvent`
+	_cache_focusRedirect = True
 	
 	def _get_focusRedirect(self):
 		obj = self._currentRow
@@ -373,25 +433,41 @@ class TableManager(ScriptableObject):
 	_cache__currentCell = False
 	
 	def _get__currentCell(self):
-		row = self._currentRow
-		if row is None:
-			return None
-		return row._currentCell
+		focus = api.getFocusObject()
+		if isinstance(focus, Cell):
+			cell = focus
+			if cell.table is self and cell.rowNumber == self._currentRowNumber:
+				if cell.columnNumber == self._currentColumnNumber:
+					return cell
+# 				log.info(f"nope1: focus={focus!r} passThrough={self.ti.passThrough}")
+				return cell.row._currentCell
+# 			log.info(
+# 				f"nope2:"
+# 				f" focus={focus!r}"
+# 				f" passThrough={self.ti.passThrough}"
+# 				f" tableID={self.tableID}"
+# 				f" self={focus.table is self}"
+# 				f" ({focus.table._currentRowNumber}, {focus.table._currentRowNumber})"
+# 			)
+# 		else:
+# 			log.info(f"nope3: focus={focus!r} passThrough={self.ti.passThrough}")
+		return self._getCell(self._currentRowNumber, self._currentColumnNumber)
 	
 	_cache__currentRow = False
 	
 	def _get__currentRow(self):
-		return self._getRow(self._currentRowNumber)
+		focus = api.getFocusObject()
+		if isinstance(focus, Cell):
+			row = focus.row
+			if row.table is self and row.rowNumber == self._currentRowNumber:
+				return row
+		curNum = self._currentRowNumber
+		if curNum is None:
+			return None
+		return self._getRow(curNum)
 	
 	def reportFocus(self):  # TODO
 		super(TableManager, self).reportFocus()
-	
-# 	def setFocus(self):
-# 		focusRedirect = self.focusRedirect
-# 		if focusRedirect is not None:
-# 			focusRedirect.setFocus()
-# 			return
-# 		log.error("There is no table cell to focus")
 	
 	def _getCell(self, rowNumber, columnNumber):
 		row = self._getRow(rowNumber)
@@ -403,67 +479,186 @@ class TableManager(ScriptableObject):
 		# TODO: Implement a base children lookup?
 		raise NotImplementedError
 		
-	def _moveToColumn(self, columnNumber, cell=None):
+	def _moveToColumn(self, columnNumber, cell=None, notifyOnFailure=True):
 		if cell is None:
 			cell = self._getCell(self._currentRowNumber, columnNumber)
-		if cell is None:
-			if not self._currentRow:
-				# Translators: Reported when a table is empty.
-				ui.message(_("Table empty"))
-				return
-			ui.message(_("Edge of table"))
+		if not cell:
+			if notifyOnFailure:
+				ui.message(translate("Edge of table"))
+			self._reportColumnChange()
 			return False
 		self._currentColumnNumber = columnNumber
 		cell.setFocus()
-		self._reportColumnChange()
+		# Wait for the cell to gain focus so it can be retrieved from `globalVars`
+		# rather than being recomputed
+		queueHandler.queueFunction(queueHandler.eventQueue, self._reportColumnChange)
+		return True
 	
-	def _moveToRow(self, rowNumber, row=None):
+	def _moveToRow(self, rowNumber, row=None, notifyOnFailure=True):
 		if row is None:
 			row = self._getRow(rowNumber)
-		if row is None:
-			if not self._currentRow:
+		if not row:
+			if nofityOnFailure:
 				# Translators: Reported when a table is empty.
-				ui.message(_("Table empty"))
-				return False
-			# Translators: Emitted when hitting the edge of a table
-			ui.message(_("Edge of table"))
-			return
+				ui.message(translate("Edge of table"))
+			return False
 		self._currentRowNumber = rowNumber
 		row.setFocus()
-		self._reportRowChange()
+		# Wait for the cell to gain focus so it can be retrieved from `globalVars`
+		# rather than being recomputed
+		queueHandler.queueFunction(queueHandler.eventQueue, self._reportRowChange)
+		return True
 	
-	def _reportColumnChange(self):
-		cell = self._currentCell
-		if cell is None:
-			# Translators: Reported when a table is empty.
-			ui.message(_("Table empty"))
+	@speechUnmutedFunction
+	def _reportCellChange(self, axis=AXIS_COLUMNS):
+		curRowNum = self._currentRowNumber
+		curColNum = self._currentColumnNumber
+		curCell = self._currentCell
+		if curCell is None:
+			ui.message(translate("Not in a table cell"))
 			return
-		parts = []
-		header = cell.columnHeaderText
-		if not header:
-			# Translators: Reported as fail-back to a missing column header
-			header = _("Col #{columnNumber}").format(columnNumber=cell.columnNumber)
-		parts.append(header)
-		parts.append(cell.basicText)
-		msg = "\n".join(parts)
-		speech.speakMessage(msg)
-	
-	def _reportRowChange(self):
-		row = self._currentRow
-		if row is None:
-			# Translators: Reported when a table is empty.
-			ui.message(_("Table empty"))
-			return
-		columnNumbers = self._markedColumnNumbers[:]
-		if self._currentColumnNumber not in columnNumbers:
-			columnNumbers.append(self._currentColumnNumber)
+
+		if axis == AXIS_COLUMNS:
+			getCell = lambda num: self._getCell(num, curColNum)
+		elif axis == AXIS_ROWS:
+			curRow = curCell.row
+			getCell = lambda num: curRow._getCell(num)
+		else:
+			raise ValueError("axis={!r}".format(axis))
+		
 		content = []
-		for columnNumber in sorted(columnNumbers):
-			cell = self._getCell(self._currentRowNumber, columnNumber)
-			if columnNumber == self._currentColumnNumber:
-				content.append(cell.basicText)
+		
+		def appendCell(num):
+			cell = getCell(num)
+			if not cell:
+				log.warning("Could not fetch cell {}".format(num))
+				return
+			content.append(cell.basicText)
+		
+		headerRowNum = self._tableConfig.columnHeaderRowNumber
+		inColHeader = headerRowNum == curRowNum or curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
+		headerColNum = self._tableConfig.rowHeaderColumnNumber
+		inRowHeader = headerColNum == curColNum or curCell.role == controlTypes.ROLE_TABLEROWHEADER
+		inHeader = inColHeader or inRowHeader
+				
+		if inHeader:
+			if inColHeader:
+				if inRowHeader:
+					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_TABLECOLUMNHEADER]
+				else:
+					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_HEADER]
+				if headerRowNum is False:
+					# Translator: Announced when moving to a muted header cell
+					content.append(_("Muted {header}").format(header=roleLabel))
+				elif (
+					isinstance(headerRowNum, int)
+					and headerRowNum != curRowNum
+					and curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
+				):
+					# Translator: Announced when moving to a superseded header cell
+					content.append(_("Original {header}").format(header=roleLabel))
+				elif axis==AXIS_ROWS or not inRowHeader:
+					content.append(roleLabel)
+			if inRowHeader:
+				if inColHeader:
+					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_TABLEROWHEADER]
+				else:
+					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_HEADER]
+				if headerColNum is False:
+					# Translator: Announced when moving to a muted header cell
+					content.append(_("Muted {header}").format(header=roleLabel))
+				elif (
+					isinstance(headerColNum, int)
+					and headerColNum != curColNum
+					and curCell.role == controlTypes.ROLE_TABLEROWHEADER
+				):
+					# Translator: Announced when moving to a superseded header cell
+					content.append(_("Original {header}").format(header=roleLabel))
+				elif axis == AXIS_COLUMNS or not inColHeader:
+					content.append(roleLabel)
+		if (
+			(axis == AXIS_COLUMNS and headerRowNum is None)
+			or (axis == AXIS_ROWS and headerColNum is None)
+		):
+			headerText = None
+			try:
+				if axis == AXIS_COLUMNS:
+					headerText = curCell.columnHeaderText
+				else:
+					headerText = curCell.rowHeaderText
+			except NotImplementedError:
+				pass
+			if headerText:
+				content.append(headerText)
+		elif axis == AXIS_COLUMNS and headerRowNum not in (False, curRowNum):
+			appendCell(headerRowNum)
+		elif axis == AXIS_ROWS and headerColNum not in (False, curColNum):
+			appendCell(headerColNum)
+		
+		content.append(curCell)
+		
+		if inColHeader:
+			marked = self._markedColumnNumbers
+			if curColNum in marked:
+				if axis == AXIS_ROWS or curColNum != headerColNum:
+					# Translators: Announced when moving to a marked header cell
+					content.append(_("Column marked"))
+					if axis == AXIS_ROWS:
+						if len(marked) > 1:
+							content.append(translate("{number} out of {total}").format(
+								number=list(sorted(marked)).index(curColNum) + 1, total=len(marked)
+							))
+					if marked[curColNum]:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("with announce"))
+					else:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("without announce"))
+			elif marked and axis == AXIS_ROWS:
+				count = len(marked)
+				
+				if len(marked) > 1:
+					# Translators: Announced when moving to a header cell
+					content.append(_("{count} columns marked").format(count=len(marked)))
+				elif len(marked) == 1  and not isinstance(headerColNum, int):
+					# Translators: Announced when moving to a header cell
+					content.append(_("1 column marked"))
+		if inRowHeader:
+			# TODO: Implement marked rows
+			marked = {headerRowNum: False} if isinstance(headerRowNum, int) else {}
+			if curRowNum in marked:
+				if axis == AXIS_COLUMNS or curRowNum != headerRowNum:
+					# Translators: Announced when moving to a marked header cell
+					content.append(_("Row marked"))
+					if axis == AXIS_COLUMNS:
+						if len(marked) > 1:
+							content.append(translate("{number} out of {total}").format(
+								number=list(marked).index(curRowNum) + 1, total=len(marked)
+							))
+					if marked[curRowNum]:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("with announce"))
+					else:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("without announce"))
+			elif marked and axis == AXIS_COLUMNS:
+				if len(marked) > 1:
+					# Translators: Announced when moving to a header cell
+					content.append(_("{count} rows marked").format(count=len(marked)))
+				elif len(marked) == 1 and not isinstance(headerRowNum, int):
+					# Translators: Announced when moving to a header cell
+					content.append(_("1 row marked"))
+		if not inHeader:
+			if axis == AXIS_COLUMNS:
+				marked = []
 			else:
-				content.append(cell.basicText)
+				marked = [
+					colNum for colNum, announce in self._markedColumnNumbers.items()
+					if announce and colNum not in (curColNum, headerColNum)
+				]
+			for colNum in marked:
+				appendCell(colNum)
+		
 		try:
 			doc = CompoundDocument(self, content)
 		except Exception:
@@ -473,33 +668,45 @@ class TableManager(ScriptableObject):
 		# Store a strong reference to keep the `FakeObject` alive.
 		info.obj = doc
 		speech.speakTextInfo(info)
+
+	def _reportColumnChange(self):
+		self._reportCellChange(axis=AXIS_COLUMNS)
+
+	def _reportFocusEntered(self):
+		#self._reportColumnChange()
+		pass
 	
-	def _tableMovementScriptHelper(self, axis, direction):
+	def _reportRowChange(self):
+		self._reportCellChange(axis=AXIS_ROWS)
+	
+	def _tableMovementScriptHelper(self, axis, direction, notifyOnFailure=True):
 		"""Helper used to incrementally move along table axis.
 		
 		axis: Either AXIS_COLUMNS or AXIS_ROWS
 		direction: Either DIRECTION_NEXT or DIRECTION_PREVIOUS
 		"""
 		if axis == AXIS_ROWS:
+			fromObj = self._currentRow
 			getNum = lambda obj: obj.rowNumber
 			getObj = lambda num: self._getRow(num)
 			getSpan = getRowSpanSafe
 			moveTo = self._moveToRow
+			repeat = self._reportRowChange
 		elif axis == AXIS_COLUMNS:
+			fromObj = self._currentCell
 			getNum = lambda obj: obj.columnNumber
-			getObj = lambda num: self._getCell(self._currentRowNumber, num)
+			getObj = lambda num: fromObj.row._getCell(num)
 			getSpan = getColumnSpanSafe
 			moveTo = self._moveToColumn
+			repeat = self._reportColumnChange
 		else:
 			ValueError("axis={}".format(repr(axis)))
-		fromNum = getNum(self._currentCell)
+		fromNum = getNum(fromObj)
 		if direction == DIRECTION_NEXT:
-			fromObj = getObj(fromNum)
 			span = getSpan(fromObj)
 			toNum = fromNum + span
 			toObj = getObj(toNum)
 		elif direction == DIRECTION_PREVIOUS:
-			fromObj = getObj(fromNum)
 			toNum = fromNum - 1
 			while True:
 				toObj = getObj(toNum)
@@ -510,22 +717,81 @@ class TableManager(ScriptableObject):
 		else:
 			raise ValueError("direction={!r}".format(direction))
 		if toObj is None:
-			# Translators: Emitted when hitting the edge of a table
-			ui.message(_("Edge of table"))
-			return
+			if notifyOnFailure:
+				ui.message(translate("Edge of table"))
+				repeat()
+			return False
 		toNum_ = toNum
 		toNum = getNum(toObj)
-		moveTo(getNum(toObj), toObj)
+		if toNum == fromNum:
+			if notifyOnFailure:
+				ui.message(translate("Edge of table"))
+				repeat()
+			return False
+		return moveTo(getNum(toObj), toObj, notifyOnFailure=notifyOnFailure)
+	
+	def event_focusEntered(self):
+		# We do not seem to receive focusEntered events with IE11
+		self._receivedFocusEntered = True
+		self._reportFocusEntered()
+	
+	def script_moveToFirstDataCell(self, gesture):
+		cell = self._firstDataCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		rowNum = cell.rowNumber
+		if self._currentRowNumber != rowNum:
+			report = self._reportRowChange
+		else:
+			report = self._reportColumnChange
+		self._currentRowNumber = rowNum
+		self._currentColumnNumber = cell.columnNumber
+		report()
+		queueHandler.queueFunction(queueHandler.eventQueue, cell.setFocus)
+	
+	script_moveToFirstDataCell.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToFirstDataCell.__doc__ = _("Go to the first data cell")
 	
 	def script_moveToFirstColumn(self, gesture):
-		self._moveToColumn(1)
+		curCell = self._currentCell
+		if curCell is None:
+			ui.message(translate("Not in a table cell"))
+			return
+		curNum = self._currentColumnNumber
+		firstCell = self._firstDataCell
+		firstNum = None
+		if firstCell is not None:
+			firstNum = firstCell.columnNumber
+			if firstNum < curNum and self._moveToColumn(firstNum, notifyOnFailure=False):
+				return
+		# All rows might not have cells for all columns.
+		# Let's itteratively try the first reachable column.
+		for colNum in range(curNum):
+			if self._moveToColumn(colNum, notifyOnFailure=False):
+				break
+		else:
+			# Repeat on failure
+			self._reportColumnChange()
 	
 	script_moveToFirstColumn.canPropagate = True
 	# Translators: The description of a command.
 	script_moveToFirstColumn.__doc__ = _("Go to the first column")
 	
 	def script_moveToLastColumn(self, gesture):
-		self._moveToColumn(self.columnCount)
+		if self._currentCell is None:
+			ui.message(translate("Not in a table cell"))
+			return
+		curNum = self._currentColumnNumber
+		# All rows might not have cells for all columns.
+		# Let's itteratively try the last reachable column.
+		for colNum in range(self.columnCount, curNum, -1):
+			if self._moveToColumn(colNum, notifyOnFailure=False):
+				break
+		else:
+			# Repeat on failure
+			self._reportColumnChange()
 	
 	script_moveToLastColumn.canPropagate = True
 	# Translators: The description of a command.
@@ -541,8 +807,7 @@ class TableManager(ScriptableObject):
 	def script_moveToNextMarkedColumn(self, gesture):
 		columnNumber = self._currentColumnNumber
 		if not columnNumber:
-			# Translators: Reported when a table is empty.
-			ui.message(_("Table empty"))
+			ui.message(translate("Not in a table cell"))
 			return
 		curColIsMarked = False
 		for marked in sorted(self._markedColumnNumbers):
@@ -554,12 +819,11 @@ class TableManager(ScriptableObject):
 		# Translators: Emitted when attempting to move to a marked column
 		speech.speakMessage(_("No next marked column"))
 		if curColIsMarked:
-			# Translators: Emitted when attempting to move to a marked column
-			speech.speakMessage(_("The current column is marked"))
+			self._reportColumnChange()
 	
 	script_moveToNextMarkedColumn.canPropagate = True
 	# Translators: The description of a command.
-	script_moveToNextMarkedColumn.__doc__ = _("Go to the previous marked column")
+	script_moveToNextMarkedColumn.__doc__ = _("Go to the next marked column")
 	
 	def script_moveToPreviousColumn(self, gesture):
 		self._tableMovementScriptHelper(AXIS_COLUMNS, DIRECTION_PREVIOUS)
@@ -578,10 +842,9 @@ class TableManager(ScriptableObject):
 			if marked == columnNumber:
 				curColIsMarked = True
 		# Translators: Emitted when attempting to move to a marked column
-		speech.speakMessage(_("No next marked column"))
+		speech.speakMessage(_("No previous marked column"))
 		if curColIsMarked:
-			# Translators: Emitted when attempting to move to a marked column
-			speech.speakMessage(_("The current column is marked"))
+			self._reportColumnChange()
 	
 	script_moveToPreviousMarkedColumn.canPropagate = True
 	# Translators: The description of a command.
@@ -637,20 +900,90 @@ class TableManager(ScriptableObject):
 	# Translators: The description of a command.
 	script_selectRow.__doc__ = _("Select the current row, if supported")
 	
+	def script_setColumnHeader(self, gesture):
+		headerNum = self._tableConfig.columnHeaderRowNumber
+		curNum = self._currentRowNumber
+		#marked = self._markedRowNumbers
+		#marked.pop(curNum, None)
+		if headerNum == curNum:
+			self._tableConfig.columnHeaderRowNumber = None
+			try:
+				headerText = self._currentCell.columnHeaderText
+			except NotImplementedError:
+				headerText = ""
+			ui.message(_("Column header reset to default: {}").format(headerText))
+		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
+			self._tableConfig.columnHeaderRowNumber = False
+			ui.message(_("Column header muted"))
+		else:
+			self._tableConfig.columnHeaderRowNumber = curNum
+			#marked[curNum] = None
+			ui.message(_("Row set as column header"))
+	
+	script_setColumnHeader.canPropagate = True
+	# Translators: The description of a command.
+	script_setColumnHeader.__doc__ = _("Set the current row as column header")
+	
+	def script_setRowHeader(self, gesture):
+		headerNum = self._tableConfig.rowHeaderColumnNumber
+		curNum = self._currentColumnNumber
+		marked = self._markedColumnNumbers
+		marked.pop(headerNum, None)
+		if headerNum == curNum:
+			self._tableConfig.rowHeaderColumnNumber = None
+			try:
+				headerText = self._currentCell.rowHeaderText
+			except NotImplementedError:
+				headerText = ""
+			# Translators: Reported when customizing row headers
+			ui.message(_("Row header reset to default: {}").format(headerText))
+		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
+			self._tableConfig.rowHeaderColumnNumber = False
+			# Translators: Reported when customizing row headers
+			ui.message(_("Row header muted"))
+		else:
+			self._tableConfig.rowHeaderColumnNumber = curNum
+			marked[curNum] = None
+			# Translators: Reported when customizing row headers
+			ui.message(_("Column set as row header"))
+	
+	script_setRowHeader.canPropagate = True
+	# Translators: The description of a command.
+	script_setRowHeader.__doc__ = _("Set the current column as row header")
+	
 	def script_toggleMarkedColumn(self, gesture):
-		currentColumnNumber = self._currentColumnNumber
-		if not currentColumnNumber:
-			# Translators: Reported when a table is empty.
-			ui.message(_("Table empty"))
+		curColNum = self._currentColumnNumber
+		if not curColNum:
+			ui.message(translate("Noe in a table cell"))
 			return
-		try:
-			self._markedColumnNumbers.remove(currentColumnNumber)
+		if curColNum == self._tableConfig.rowHeaderColumnNumber:
+			# Translators: Reported when attempting to mark a column
+			msg = _("This column is already marked as row header.")
+			hint = getScriptGestureHint(
+				TableManager,
+				self.script_setRowHeader,
+				# Translators: The {command} portion of a script hint message
+				doc=_("reset")
+			)
+			if hint:
+				msg += " " + hint
+			ui.message(msg)
+			return
+		marked = self._markedColumnNumbers
+		if curColNum in marked:
+			announce = marked[curColNum]
+			if announce:
+				marked[curColNum] = False
+				# Translators: Reported when toggling marked columns
+				ui.message(_("Column {} marked without announce").format(curColNum))
+				return
+			del marked[curColNum]
 			# Translators: Reported when toggling marked columns
-			ui.message(_("Column {} unmarked").format(currentColumnNumber))
-		except ValueError:
-			self._markedColumnNumbers.append(currentColumnNumber)
-			# Translators: Reported when toggling marked columns
-			ui.message(_("Column {} marked").format(currentColumnNumber))
+			ui.message(_("Column {} unmarked").format(curColNum))
+			return
+		marked[curColNum] = True
+		# Translators: Reported when toggling marked columns
+		ui.message(_("Column {} marked with announce").format(curColNum))
 	
 	script_toggleMarkedColumn.canPropagate = True
 	# Translators: The description of a command.
@@ -663,10 +996,14 @@ class TableManager(ScriptableObject):
 		"kb:rightArrow": "moveToNextColumn",
 		"kb:home": "moveToFirstColumn",
 		"kb:end": "moveToLastColumn",
-		"kb:control+home": "moveToFirstRow",
+		"kb:control+home": "moveToFirstDataCell",
 		"kb:control+end": "moveToLastRow",
 		"kb:control+leftArrow": "moveToPreviousMarkedColumn",
 		"kb:control+rightArrow": "moveToNextMarkedColumn",
+		"kb:control+upArrow": "moveToFirstRow",
+		"kb:control+downArrow": "moveToLastRow",
+		"kb:NVDA+shift+c": "setColumnHeader",
+		"kb:NVDA+shift+r": "setRowHeader",
 		"kb:control+space": "toggleMarkedColumn",
 		"kb:shift+space": "selectRow",
 	}

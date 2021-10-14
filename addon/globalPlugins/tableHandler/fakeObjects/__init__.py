@@ -25,7 +25,7 @@
 # Get ready for Python 3
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.09.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -42,8 +42,8 @@ import eventHandler
 from logHandler import log
 import textInfos.offsets
 
-from ..textInfos import LaxSelectionTextInfo
-from ..utils import getDynamicClass
+from ..coreUtils import getDynamicClass
+from ..textInfoUtils import LaxSelectionTextInfo
 
 
 addonHandler.initTranslation()
@@ -127,14 +127,14 @@ class FakeObject(NVDAObject):
 	def _set_appModule(self, value):
 		raise Exception("Just checking")
 	
-	def _get_event_windowHandle(self):
-		return self.parent.windowHandle
-	
-	def _get_event_objectID(self):
-		return self.parent.event_objectID
-	
-	def _get_event_childID(self):
-		return self.parent.event_childID
+# 	def _get_event_windowHandle(self):
+# 		return self.parent.windowHandle
+# 	
+# 	def _get_event_objectID(self):
+# 		return self.parent.event_objectID
+# 	
+# 	def _get_event_childID(self):
+# 		return self.parent.event_childID
 	
 	_cache_firstChild = False
 	

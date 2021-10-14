@@ -1,7 +1,7 @@
-# globalPlugins/tableHandler/textInfos.py
+# globalPlugins/tableHandler/tableUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is part of Table Handler for NVDA.
+# This file is a utility module for NVDA.
 # Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,45 +19,44 @@
 #
 # See the file COPYING.txt at the root of this distribution for more details.
 
-"""Table Handler Global Plugin
+"""Table utilities
 """
 
 # Get ready for Python 3
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.09.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
-import textInfos.offsets
+from logHandler import log
 
 
-class LaxSelectionTextInfo(textInfos.offsets.OffsetsTextInfo):
-	"""An `OffsetsTextInfo` overlay that treats selection-unawareness as unselected.
-	
-	Allows to query for selection objects that do not implement this feature.
-	"""
-	
-	def _get_selectionOffsets(self):
-		try:
-			return super(FakeObjectTextInfo, self).selectionOffsets
-		except NotImplementedError:
-			return 0, 0
+def getColumnSpanSafe(cell):
+	try:
+		span = cell.columnSpan
+		if span is None:
+			span = 1
+		elif span < 1:
+			log.error("cell={}, role={}, columnSpan={}".format(repr(cell), cell.role, span))
+			span = 1
+	except NotImplementedError:
+		span = 1
+	except Exception:
+		log.exception("cell={}".format(repr(cell)))
+		span = 1
+	return span
 
 
-def getField(info, command, **criteria):
-	if info.isCollapsed:
-		info = info.copy()
-		info.expand(textInfos.UNIT_CHARACTER)
-	for cmdField in reversed(info.getTextWithFields()):
-		if not (
-			isinstance(cmdField, textInfos.FieldCommand)
-			and cmdField.command == command
-		):
-			continue
-		field = cmdField.field
-		for key, value in criteria.items():
-			if key in field and field[key] != value:
-				break
-		else:
-			return field
+def getRowSpanSafe(cell):
+	try:
+		span = cell.rowSpan
+		if span < 1:
+			log.error("cell={}, role={}, rowSpan={}".format(repr(cell), cell.role, span))
+			span = 1
+	except NotImplementedError:
+		span = 1
+	except Exception:
+		log.exception("cell={}".format(repr(cell)))
+		span = 1
+	return span

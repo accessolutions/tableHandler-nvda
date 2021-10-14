@@ -1,4 +1,4 @@
-# globalPlugins/tableHandler.py
+# globalPlugins/tableHandler/__init__.py
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
@@ -25,64 +25,27 @@
 # Get ready for Python 3
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.09.28"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 import six
 import weakref
 
-from NVDAObjects import DynamicNVDAObjectType, IAccessible, NVDAObject, UIA
 import addonHandler
 import api
-from baseObject import AutoPropertyObject, ScriptableObject
-import braille
-import brailleInput
-import browseMode
-import compoundDocuments
-import config
 import controlTypes
-import eventHandler
 import globalPluginHandler
-import inputCore
-from keyboardHandler import KeyboardInputGesture
 from logHandler import log
-import oleacc
-import queueHandler
-import scriptHandler
-import speech
-import textInfos
-import textInfos.offsets
-from treeInterceptorHandler import TreeInterceptor
 import ui
-import vision
+
+from .coreUtils import translate
 
 
-try:
-	REASON_CARET = controlTypes.OutputReason.CARET
-	REASON_ONLYCACHE = controlTypes.OutputReason.ONLYCACHE
-except AttributeError:
-	# NVDA < 2021.1
-	REASON_CARET = controlTypes.REASON_CARET
-	REASON_ONLYCACHE = controlTypes.REASON_ONLYCACHE
-
-
-# addonHandler.initTranslation()
+addonHandler.initTranslation()
 
 
 SCRIPT_CATEGORY = "TableHandler"
-
-
-# def _setFocusObject(obj):
-# 	from .utils import getObjLogInfo
-# 	
-# 	log.info(f">>> api.setFocusObject({getObjLogInfo(obj)})")
-# 	res = _setFocusObject.super(obj)
-# 	import globalVars
-# 	log.info(f"<<< api.setFocusObject: {getObjLogInfo(globalVars.focusObject)})")
-# 
-# _setFocusObject.super = api.setFocusObject
-# api.setFocusObject = _setFocusObject
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -94,31 +57,32 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):  # TODO
 		role = obj.role
 		if role == controlTypes.ROLE_DOCUMENT:
-			from .browseMode import TableHandlerDocument
+			from .documents import TableHandlerDocument
 			clsList.insert(0, TableHandlerDocument)
 	
 	def terminate(self):
 		terminate()
 	
 	def script_toggleTableMode(self, gesture):
-		from .fakeObjects.table import TextInfoDrivenFakeCell
-		from .browseMode import TABLE_MODE, reportPassThrough
+		from .documents import TABLE_MODE, DocumentFakeCell, reportPassThrough
 		focus = api.getFocusObject()
-		ti = focus.treeInterceptor if focus else None
-		if ti.passThrough == TABLE_MODE:
-# 			if ti._currentTable is not None:
-# 				ti._tableManagers.pop(ti._currentTable.tableID, None)
-			ti.passThrough = False
-			reportPassThrough(ti)
-			return
+		if isinstance(focus, DocumentFakeCell):
+			ti = focus.table.ti
+			if ti.passThrough == TABLE_MODE:
+				ti.passThrough = False
+				reportPassThrough(ti)
+				return
 		info = api.getReviewPosition()
-		table = getTableManager(info=info, setPosition=True, force=True)
-		if table:
-			ti = table.treeInterceptor
-			table.setFocus()
+		table = getTableManager(info=info, setPosition=True, force=False)
+		if not table:
+			# Use translation from NVDA core
+			ui.message(translate("Not in a table cell"))
 			return
-		# Translators: Reported when attempting to switch to table mode
-		ui.message(_("No suitable table found"))
+		#ti = table.treeInterceptor
+		ti = table.ti
+		ti._currentTable = table
+		ti.passThrough = TABLE_MODE
+		reportPassThrough(ti)
 			
 	
 	script_toggleTableMode.ignoreTreeInterceptorPassThrough = True
@@ -134,9 +98,10 @@ _handlers = ["Table handler not initialized"]
 
 
 def initialize():
-	global _handlers
-	from .virtualBuffers import VBufTableHandler
-	_handlers[:] = [VBufTableHandler()]
+# 	global _handlers
+# 	from .documents import DocumentTableHandler
+# 	_handlers[:] = [DocumentTableHandler()]
+	_handlers[:] = []
 
 
 def terminate():
@@ -166,20 +131,30 @@ def getTableManager(**kwargs):
 
 class TableConfig(object):
 	
-	def __init__(self, defaultColumnWidth=10, columnsWidths=None):
+	def __init__(
+		self,
+		key,
+		defaultColumnWidth=10,
+		columnWidths=None,
+		columnHeaderRowNumber=None,
+		rowHeaderColumnNumber=None
+	):
+		self.key = key
 		self.defaultColumnWidth = defaultColumnWidth
-		if columnsWidths is not None:
-			self.columnsWidths = columnsWidths
+		if columnWidths is not None:
+			self.columnWidths = columnWidths
 		else:
-			self.columnsWidths = {}
+			self.columnWidths = {}
+		self.columnHeaderRowNumber = columnHeaderRowNumber
+		self.rowHeaderColumnNumber = rowHeaderColumnNumber
 	
 	def getColumnWidth(self, rowNumber, columnNumber):
-		columnsWidths = self.columnsWidths
+		columnWidths = self.columnWidths
 		try:
-			if isinstance(columnsWidths, (list, tuple)):
-				return columnsWidths[columnNumber - 1]
+			if isinstance(columnWidths, (list, tuple)):
+				return columnWidths[columnNumber - 1]
 			else:
-				return columnsWidths[columnNumber]
+				return columnWidths[columnNumber]
 		except (AttributeError, LookupError):
 			pass
 		return self.defaultColumnWidth
@@ -190,5 +165,8 @@ class TableHandler(object):
 	def getTableManager(self, **kwargs):
 		raise NotImplementedError
 	
-	def getTableConfig(self, **kwargs):
-		return TableConfig()
+	def getTableConfig(self, key="default", **kwargs):
+		return TableConfig(key)
+	
+	def getTableConfigKey(self, **kwargs):
+		return "default"

@@ -1,7 +1,7 @@
-# globalPlugins/tableHandler/braille.py
+# globalPlugins/tableHandler/brailleUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is part of Table Handler for NVDA.
+# This file is a utility module for NVDA.
 # Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify

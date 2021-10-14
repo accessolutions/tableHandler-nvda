@@ -25,11 +25,13 @@
 # Get ready for Python 3
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.10.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 import six
+import threading
+import time
 import weakref
 
 import addonHandler
@@ -42,9 +44,9 @@ import textInfos.offsets
 import ui
 
 from ..behaviors import Cell, Row, TableManager
-from ..textInfos import getField
-from ..utils import getColumnSpanSafe, getRowSpanSafe
-from . import CHILD_ACCESS_GETTER, CHILD_ACCESS_ITERATION, FakeObject
+from ..tableUtils import getColumnSpanSafe, getRowSpanSafe
+from ..textInfoUtils import WindowedProxyTextInfo, getField
+from . import CHILD_ACCESS_GETTER, CHILD_ACCESS_ITERATION, CHILD_ACCESS_SEQUENCE, FakeObject
 
 
 addonHandler.initTranslation()
@@ -73,8 +75,8 @@ class FakeCell(Cell, FakeObject):
 			kwargs["row"] = row
 		super(FakeCell, self).__init__(*args, **kwargs)
 		if not self.parent:
-			log.error(f"no parent! args={args}, kwargs={kwargs}")
-		self._trackingInfo = [f"{self!r}({id(self)})"]
+			log.error("No parent! args={}, kwargs={}".format(args, kwargs))
+		#self._trackingInfo = [f"{self!r}({id(self)})"]
 	
 	def _get_basicText(self):
 		func = getattr(self.row, "_getCellBasicText", None)
@@ -123,8 +125,40 @@ class FakeCell(Cell, FakeObject):
 		return self.row.rowNumber
 
 
+class TextInfoDrivenFakeCellThread(threading.Thread):
+	
+	POLL_INTERVAL = 100
+	
+	def __init__(self, cell):
+		super(TextInfoDrivenFakeCellThread, self).__init__(
+			name="TextInfoDrivenFakeCellThread({!r})".format(cell)
+		)
+		self.daemon = True
+		self.cell = weakref.ref(cell)
+	
+	def run(self):
+		while True:
+			time.sleep(self.POLL_INTERVAL)
+			cell = self.cell()
+			if not cell:
+				return
+			
+			def textInfoDrivenFakeCellUpdate():
+				newCell = self.table._getCell(cell.rowNumber, cell.columnNumber)
+				cell.info = newCell.info
+				cell.row = newCell.row
+			
+			queueHandler.queueFunction(queueHandler.eventQueue, textInfoDrivenFakeCellUpdate)
+			
+
 class TextInfoDrivenFakeCell(FakeCell):
-		
+	
+	_childAccess = CHILD_ACCESS_ITERATION
+	
+	def __init__(self, *args, **kwargs):
+		super(TextInfoDrivenFakeCell, self).__init__(*args, **kwargs)
+		#TextInfoDrivenFakeCellThread(self).start()
+	
 	def __del__(self):
 		self.info = None
 		super(TextInfoDrivenFakeCell, self).__del__()
@@ -161,10 +195,20 @@ class TextInfoDrivenFakeCell(FakeCell):
 			return None
 		return self.field.get("table-columnsspanned")
 	
+	def _get_firstChild(self):
+		info = self.info
+		obj = info.NVDAObjectAtStart if info else None
+		return obj if obj is not self else None
+	
 	def _get_location(self):
 		if self.info is None:
 			return None
 		return self.info.NVDAObjectAtStart.location
+	
+	def _get_role(self):
+		if self.info is None:
+			return super(TextInfoDrivenFakeCell, self).role
+		return self.field.get("role")
 	
 	def _get_rowNumber(self):
 		if self.info is None:
@@ -177,20 +221,13 @@ class TextInfoDrivenFakeCell(FakeCell):
 		return self.field.get("table-rowsspanned")
 	
 	def makeTextInfo(self, position):
-		if self.info is None:
+		info = self.info
+		if info is None:
 			return None
-		obj = self.info.NVDAObjectAtStart
-		info = obj.makeTextInfo(obj)
-		if (
-			position == textInfos.POSITION_SELECTION
-			and self.columnNumber != self.table._currentColumnNumber
-		):
-			info.collapse()
-		# Store a strong reference to keep the volatile `NVDAObject` alive.
-		info.obj = obj
-		info._trackingInfo = [f"f{self!r}({id(self)}).makeTextinfo({position!r})"]
-		obj._trackingInfo = [f"f{self!r}.makeTextinfo({position!r}).obj"]
-		return info
+		field = self.field
+		if field is None:
+			return None
+		return WindowedProxyTextInfo(self, position, proxied=info, role=field["role"])
 
 
 CELL_ACCESS_CHILDREN = "children"
@@ -239,44 +276,68 @@ class FakeRow(Row, FakeObject):
 class TextInfoDrivenFakeRow(FakeRow):
 	
 	CellClass = TextInfoDrivenFakeCell
-	_childAccess = CHILD_ACCESS_ITERATION
+	_childAccess = CHILD_ACCESS_SEQUENCE
 	
 	def __init__(self, *args, table=None, rowNumber=None, **kwargs):
 		super(TextInfoDrivenFakeRow, self).__init__(*args, table=table, rowNumber=rowNumber, **kwargs)
 		self._cache = weakref.WeakKeyDictionary()
 	
-	def _getCell(self, columnNumber):
-		# Fetch and catch the whole row as long as the last returned cell stays alive.
-		oldCell, (colNum, colSpan, cache) = next(iter(self._cache.items()), (None, (None, None, {})))
-		if oldCell is not None:
-			if colNum <= columnNumber < colNum + colSpan:									
-				return oldCell
-			del self._cache[oldCell]
-			oldColNum, oldColSpan = colNum, colSpan
-		newCell = newColNum = newColSpan = None
-		for (colNum, colSpan), cell in cache.items():
-			if colNum <= columnNumber < colNum + colSpan:
-				newColNum, newColSpan, newCell = colNum, colSpan, cell
-				break
-		if newCell is not None:
-			del cache[newColNum, newColSpan]
-			# The previously returned cell was not in the cache
-			cache[(oldColNum, oldColSpan)] = oldCell
-		else:
-			cache.clear()
-			for colNum, colSpan, cell in self._iterCells():
+	def _get_children(self):
+		return [cell for colNum, colSpan, cell in self._iterCells()]
+		
+	def _getCell(self, columnNumber, refresh=False):
+		newCell = None
+		if not refresh:
+			# Fetch and cache the whole row as long as the last returned cell stays alive.
+			oldCell, (oldColNum, colSpans, cache) = next(
+				iter(self._cache.items()),
+				(None, (None, {}, {}))
+			)
+			if oldCell is not None:
+				if oldColNum <= columnNumber < oldColNum + colSpans[oldColNum]:									
+					return oldCell
+				del self._cache[oldCell]
+			newCell = newColNum = None
+			for colNum, cell in cache.items():
+				if colNum <= columnNumber < colNum + colSpans[colNum]:
+					newColNum, newCell = colNum, cell
+					break
+			if newCell is not None:
+				del cache[newColNum]
+				# The previously returned cell was not in the cache
+				cache[oldColNum] = oldCell
+		if refresh or newCell is None:
+			cache = {}
+			colSpans = {}
+			index = []
+			for colNum, colSpan, cell in self._iterCells(refresh=True):
+				index.append((cell.info._startOffset, colNum, colSpan))
 				if colNum <= columnNumber < colNum + colSpan:
 					# Do not return until the whole row has been cached
-					newColNum, newColSpan, newCell = colNum, colSpan, cell
+					newColNum, newCell = colNum, cell
 				else:
 					# Only cache the cells that are not returned
-					cache[colNum, colSpan] = cell
+					cache[colNum] = cell
+				colSpans[colNum] = colSpan
+			#from pprint import pformat
+			#log.info(f"cells: {pformat(index, indent=4)}", stack_info=True)
+				
 		if newCell is not None:
 			# Keep the cache as long as the returned cell is alive
-			self._cache[newCell] = (newColNum, newColSpan, cache)
+			self._cache[newCell] = (newColNum, colSpans, cache)
 		return newCell
 	
-	def _iterCells(self):
+	def _iterCells(self, refresh=False):
+		if not refresh:
+			oldCell, (oldColNum, colSpans, cache) = next(
+				iter(self._cache.items()),
+				(None, (None, [], {}))
+			)
+			if oldCell is not None:
+				for colNum in colSpans:
+					cell = oldCell if colNum == oldColNum else cache[colNum]
+					yield colNum, colSpans[colNum], cell
+				return
 		infos = self.table._iterCellsTextInfos(self.rowNumber)
 		while True:
 			try:
@@ -288,6 +349,7 @@ class TextInfoDrivenFakeRow(FakeRow):
 			if info is None:
 				return
 			cell = self._createCell(info=info)
+			#log.info(f"new cell {cell!r} at {info._startOffset}")
 			yield cell.columnNumber, getColumnSpanSafe(cell), cell
 
 
@@ -321,17 +383,19 @@ class FakeTableManager(TableManager, FakeObject):
 		return self.RowClass(table=self, *args, **kwargs)
 	
 	def _getRow(self, rowNumber):
+		row = self._createRow(rowNumber=rowNumber)
+		return row
 		weakRow = self._rows.get(rowNumber)
 		row = weakRow() if weakRow is not None else None
 		if row is None and self._canCreateRow(rowNumber):
 			row = self._createRow(rowNumber=rowNumber)
 			if row is not None:
 				self._rows[rowNumber] = weakref.ref(row)
-		if row is None or not row._currentCell:
+		# The current column number might be None eg. in a table caption
+		if row is None or not (row._currentCell or self._currentColumnNumber is None):
 			self._rows.pop(rowNumber, None)
 			return None
 		return row
-
 
 
 class StaticFakeTableManager(FakeTableManager):
