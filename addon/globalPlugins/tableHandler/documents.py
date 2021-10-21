@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.20"
+__version__ = "2021.10.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -949,7 +949,12 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 			self._currentColumnNumber = colNum
 			cell = self._currentCell
 			#log.info(f"_setPosition({info._startOffset}): ({rowNum}, {colNum})")
-		if cell and cell.role == controlTypes.ROLE_TABLECELL:
+		if (
+			cell
+			and cell.role == controlTypes.ROLE_TABLECELL
+			and rowNum != self._tableConfig["columnHeaderRowNumber"]
+			and colNum != self._tableConfig["rowHeaderColumnNumber"]
+		):
 			return
 		cell = self._firstDataCell
 		if cell:
