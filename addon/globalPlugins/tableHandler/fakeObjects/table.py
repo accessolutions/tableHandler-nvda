@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.12"
+__version__ = "2021.10.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -383,8 +383,6 @@ class FakeTableManager(TableManager, FakeObject):
 		return self.RowClass(table=self, *args, **kwargs)
 	
 	def _getRow(self, rowNumber):
-		row = self._createRow(rowNumber=rowNumber)
-		return row
 		weakRow = self._rows.get(rowNumber)
 		row = weakRow() if weakRow is not None else None
 		if row is None and self._canCreateRow(rowNumber):
