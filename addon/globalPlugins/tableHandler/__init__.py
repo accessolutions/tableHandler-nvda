@@ -22,24 +22,41 @@
 """Table Handler Global Plugin
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.28"
+__version__ = "2021.10.20"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
-import six
+from functools import partial
+import os.path
 import weakref
 
 import addonHandler
 import api
 import controlTypes
+import errno
 import globalPluginHandler
+import globalVars
 from logHandler import log
+from treeInterceptorHandler import TreeInterceptor
 import ui
 
-from .coreUtils import translate
+from .lib import synchronized
+from .coreUtils import Break, translate
+
+try:
+	import json
+except ImportError:
+	# NVDA version < 2017.3
+	from .lib import json
+
+try:
+	from garbageHandler import TrackedObject
+except ImportError:
+	# NVDA version < 2020.3
+	TrackedObject = object
 
 
 addonHandler.initTranslation()
@@ -50,18 +67,11 @@ SCRIPT_CATEGORY = "TableHandler"
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	
-	def __init__(self):
-		super(GlobalPlugin, self).__init__()
-		initialize()
-	
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):  # TODO
 		role = obj.role
 		if role == controlTypes.ROLE_DOCUMENT:
 			from .documents import TableHandlerDocument
 			clsList.insert(0, TableHandlerDocument)
-	
-	def terminate(self):
-		terminate()
 	
 	def script_toggleTableMode(self, gesture):
 		from .documents import TABLE_MODE, DocumentFakeCell, reportPassThrough
@@ -94,70 +104,200 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	}
 
 
-_handlers = ["Table handler not initialized"]
+def getTableConfig(**kwargs):
+	if kwargs.get("debug"):
+		log.info(f">>> getTableConfig({kwargs})")
+	res = TableHandlerDispatcher("getTableConfig", None, **kwargs)
+	if kwargs.get("debug"):
+		log.info(f"<<< getTableConfig: {(res.key if res else None)!r}")
+	return res
 
 
-def initialize():
-# 	global _handlers
-# 	from .documents import DocumentTableHandler
-# 	_handlers[:] = [DocumentTableHandler()]
-	_handlers[:] = []
-
-
-def terminate():
-	_handlers = ["Table handler terminated"]
-
-
-def registerTableHandler(handler):
-	_handlers.insert(0, handler)
+def getTableConfigKey(**kwargs):
+	if kwargs.get("debug"):
+		log.info(f">>> getTableConfigKey({kwargs})")
+	res = TableHandlerDispatcher("getTableConfigKey", None, **kwargs)
+	if kwargs.get("debug"):
+		log.info(f"<<< getTableConfigKey: {res!r}")
+	return res
 
 
 def getTableManager(**kwargs):
-	table = None
-	for index, handler in enumerate(_handlers.copy()):
-		if isinstance(handler, weakref.ReferenceType):
-			handler = handler()
-			if not handler:
-				del _handlers[index]
-				continue
+	if kwargs.get("debug"):
+		log.info(f">>> getTableManager({kwargs})")
+	res = TableHandlerDispatcher("getTableManager", None, **kwargs)
+	if kwargs.get("debug"):
+		log.info(f"<<< getTableManager: {(res._tableConfig.key if res else None)!r}")
+	return res
+
+
+class TableHandlerDispatcher(TrackedObject):
+	
+	def __new__(cls, funcName, default, **kwargs):
+		self = super(cls, cls).__new__(cls)
+		self._gen = self.gen(funcName, **kwargs)
 		try:
-			table = handler.getTableManager(**kwargs)
-		except Exception:
-			log.exception("handler={!r}, kwargs={!r}".format(handler, kwargs))
-			continue
-		if table:
-			return table
+			return self.next(default, **kwargs)
+		finally:
+			del self._gen
+		
+	def gen(self, funcName, **kwargs):
+		for plugin in globalPluginHandler.runningPlugins:
+			func = getattr(plugin, funcName, None)
+			if func:
+				yield func
+		obj = kwargs.get("obj")
+		ti = kwargs.get("ti")
+		if not obj:
+			info = kwargs.get("info")
+			if info:
+				obj = info.obj
+				if isinstance(obj, TreeInterceptor):
+					if not ti:
+						ti = obj
+					obj = obj.rootNVDAObject
+		if not obj:
+			obj = api.getFocusObject()
+		if obj:
+			appModule = obj.appModule
+			func = getattr(appModule, funcName, None)
+			if func:
+				yield func
+		if not ti:
+			from .documents import DocumentFakeObject
+			if isinstance(obj, DocumentFakeObject):
+				ti = obj.ti
+			else:
+				ti = obj.treeInterceptor
+		if ti:
+			webAccess = getattr(ti, "webAccess", None)
+			if webAccess:
+				webModule = webAccess.webModule
+				if webModule:
+					func = getattr(webModule, funcName, None)
+					if func:
+						yield func
+			func = getattr(ti, funcName, None)
+			if func:
+				yield func
+		func = getattr(obj, funcName, None)
+		if func:
+			yield func
+	
+	def next(self, default, **kwargs):
+		func = next(self._gen, None)
+		if not func:
+			return default
+		return func(**kwargs, nextHandler=partial(self.next, default))
 
 
 class TableConfig(object):
 	
+	DEFAULTS = {
+		"defaultColumnWidth" : 10,
+		"columnWidths" : {},
+		"columnHeaderRowNumber": None,
+		"rowHeaderColumnNumber": None
+	}
+	
+	FILE_PATH = os.path.join(globalVars.appArgs.configPath, "tableHandler.json")
+	
+	_catalog = None
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def catalog(cls):
+		catalog = cls._catalog
+		if catalog is not None:
+			return catalog
+		catalog = cls._catalog = [item["key"] for item in cls.read() or []]
+		return catalog
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def remove(cls, key):
+		configs = cls.read() or []
+		for index, item in enumerate(configs):
+			if item["key"] == key:
+				del configs[index]
+				cls._catalog.remove(key)
+				break
+		else:
+			raise LookupError(key)
+		with open(self.FILE_PATH, "w") as f:
+			json.dump(configs, f, indent=4)
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def load(cls, key):
+		for item in cls.read() or []:
+			if item["key"] == key:
+				return cls(key=key, data=item["config"])
+		raise LookupError(key)
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def read(cls):
+		try:
+			with open(cls.FILE_PATH, "r") as f:
+				return json.load(f)
+		except EnvironmentError as e:
+			if e.errno != errno.ENOENT:
+				raise
+	
 	def __init__(
 		self,
 		key,
-		defaultColumnWidth=10,
-		columnWidths=None,
-		columnHeaderRowNumber=None,
-		rowHeaderColumnNumber=None
+		data=None,
+		defaults=None,
 	):
 		self.key = key
-		self.defaultColumnWidth = defaultColumnWidth
-		if columnWidths is not None:
-			self.columnWidths = columnWidths
+		if data is not None:
+			self.data = data
 		else:
-			self.columnWidths = {}
-		self.columnHeaderRowNumber = columnHeaderRowNumber
-		self.rowHeaderColumnNumber = rowHeaderColumnNumber
+			data = self.data = {}
+		if defaults is not None:
+			self.defaults = defaults
+		else:
+			self.defaults = self.DEFAULTS
+	
+	def __contains__(self, item):
+		return item in self.data or item in self.defaults
+	
+	def __getitem__(self, name, default=None):
+		return self.data.get(name, self.defaults.get(name, default))
+	
+	def __setitem__(self, name, value):
+		self.data[name] = value
+		self.save()
 	
 	def getColumnWidth(self, rowNumber, columnNumber):
-		columnWidths = self.columnWidths
+		columnWidths = self["columnWidths"]
 		try:
 			if isinstance(columnWidths, (list, tuple)):
 				return columnWidths[columnNumber - 1]
-			else:
+			elif isinstance(columnWidths, dict):
 				return columnWidths[columnNumber]
-		except (AttributeError, LookupError):
+			elif columnWidths:
+				raise ValueError("Unexpected columnWidths={!r}".format(columnWidths))
+		except LookupError:
 			pass
-		return self.defaultColumnWidth
+		return self["defaultColumnWidth"]
+	
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def save(self):
+		configs = self.read() or []
+		key = self.key
+		for item in configs:
+			if item["key"] == key:
+				item["config"] = self.data
+				break
+		else:
+			configs.append({"key": key, "config": self.data})
+			if self._catalog is not None:
+				self._catalog.append(key)
+		with open(self.FILE_PATH, "w") as f:
+			json.dump(configs, f, indent=4)
 
 
 class TableHandler(object):
@@ -165,8 +305,11 @@ class TableHandler(object):
 	def getTableManager(self, **kwargs):
 		raise NotImplementedError
 	
-	def getTableConfig(self, key="default", **kwargs):
-		return TableConfig(key)
+	def getTableConfig(self, tableConfigKey="default", **kwargs):
+		try:
+			return TableConfig.load(tableConfigKey)
+		except LookupError:
+			return TableConfig(tableConfigKey)
 	
 	def getTableConfigKey(self, **kwargs):
 		return "default"

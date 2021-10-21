@@ -22,7 +22,7 @@
 """Early-Access WebAccess Table Mode integration
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
 __version__ = "2021.09.30"
@@ -32,18 +32,15 @@ __license__ = "GPL"
 import weakref
 
 import addonHandler
-import api
 from logHandler import log
-import queueHandler
 from treeInterceptorHandler import TreeInterceptor
 
 from globalPlugins.webAccess.ruleHandler import Result, Rule
 from globalPlugins.webAccess.webModuleHandler import WebModule
 from globalPlugins.withSpeechMuted import speechMuted
 
-from . import TableConfig, registerTableHandler
-from .coreUtils import catchAll
-from .fakeObjects import FakeObject
+from . import TableConfig, getTableConfig, getTableConfigKey, getTableManager
+from .coreUtils import Break
 from .documents import DocumentTableHandler, TableHandlerTreeInterceptorScriptWrapper
 
 
@@ -67,7 +64,8 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	
 	def __init__(self):
 		super(TableHandlerWebModule, self).__init__()
-		registerTableHandler(weakref.ref(self))
+		self.tableConfigs = weakref.WeakValueDictionary()
+		self.tableIDs = {}
 	
 	def __getattribute__(self, name):
 		value = super(TableHandlerWebModule, self).__getattribute__(name)
@@ -83,83 +81,110 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 			return TableHandlerRule(self.ruleManager, data)
 		return super(TableHandlerWebModule, self).createRule(data)
 	
-	def getTableConfig(self, ti=None, tableConfigKey=None, **kwargs):
+	def getTableConfig(self, nextHandler=None, **kwargs):
+		tableCfg = nextHandler(**kwargs)
+		tableConfigKey = kwargs["tableConfigKey"]
+		wmKeyPart = tableConfigKey.get("webModule") if isinstance(tableConfigKey, dict) else None
+		data = None
 		defaults = None
-		if tableConfigKey and tableConfigKey.get("WebModule") == self.name:
-			rule = tableConfigKey.get("rule")
-			if rule:
-				defaults = self.tableConfigs.get(rule)
-		tableCfg = super(TableHandlerWebModule, self).getTableConfig(
-			ti=None, tableConfigKey=tableConfigKey, **kwargs)
-		if not tableCfg:
-			if defaults:
-				tableCfg = TableConfig(key=tableConfigKey)
-		if not tableCfg:
-			return None
-		if tableConfigKey:
-			if tableConfigKey != tableCfg.key:
-				# TODO: Copy config instead of re-keying
-				tableCfg.key = tableConfigKey
-		if defaults:
+		if not tableCfg and wmKeyPart:
+			templateKey = tableConfigKey.copy()
+			templateKey.pop("webModule")
+			if not templateKey:
+				templateKey = "default"
+			templateKwargs = kwargs.copy()
+			tamplateKwargs["tableConfigKey"] = templateKey
+			templateCfg = getTableConfig(**templateKwargs)
+			if templateCfg:
+				data = templateCfg.data
+				defaults = templateCfg.defaults
+		if wmKeyPart:
+			name = wmKeyPart.get("name")
+			if not name or name == self.name:
+				rule = wmKeyPart.get("rule")
+				if rule:
+					defaults = self.tableConfigs.get(rule)
+		if (
+			(not tableCfg and (data is not None or defaults is not None))
+			or (tableCfg and tableCfg.key != tableConfigKey)
+		):
+			tableCfg = TableConfig(tableConfigKey, data=data, defaults=defaults)
+		elif tableCfg and defaults is not None:
 			tableCfg.defaults = defaults
 		return tableCfg
 	
-	def getTableConfigKey(self, ti=None, result=None, **kwargs):
-		key = ti.getTableConfigKey(result=result, **kwargs)
+	def getTableConfigKey(self, nextHandler=None, **kwargs):
+		key = nextHandler(**kwargs)
 		if not isinstance(key, dict):
 			assert key == "default"
 			key = {}
-		key["handler"] = "WebAccess"
-		key["webModule"] = self.name
+		key["webModule"] = webModule = { "name": self.name }
+		result = kwargs.get("result")
 		if result:
-			key["rule"] = result.rule.name
+			webModule["rule"] = result.rule.name
+		#log.info(f"getTableConfigKey: {key!r}")
 		return key
 	
-	def getTableManager(
-		self,
-		info=None,
-		result=None,
-		tableConfigKey=None,
-		tableConfig=None,
-		**kwargs
-	):
-		ti = self.ruleManager.nodeManager.treeInterceptor
-		try:
-			if info.obj.webAccess.webModule is not self:
-				return None
-		except AttributeError:
-			return None
+	def getTableManager(self, nextHandler=None, **kwargs):
+		if kwargs.get("debug"):
+			log.info(f"WM.getTableManager({kwargs})")
+		ti = kwargs.get("ti")
+		if not ti:
+			if not self.ruleManager.isReady:
+				return nextHandler(**kwargs)
+			kwargs["ti"] = ti = self.ruleManager.nodeManager.treeInterceptor
+		info = kwargs.get("info")
+		result = kwargs.get("result")
+		if not result:
+			tableCellCoords = kwargs.get("tableCellCoords")
+			try:
+				if not tableCellCoords:
+					if not info:
+						kwargs["info"] = info = ti.selection
+					try:
+						tableCellCoords = ti._getTableCellCoordsIncludingLayoutTables(info)
+					except LookupError:
+						if kwargs.get("debug"):
+							log.exception()
+						raise Break
+				kwargs["tableCellCoords"] = tableCellCoords
+				tableID, isLayout, rowNum, colNum, rowSpan, colSpan = tableCellCoords
+				result = self.tableIDs.get(tableID)
+				if result:
+					kwargs["result"] = result
+			except Break:
+				pass
 		if not result:
 			for result in self.ruleManager.iterResultsAtTextInfo(info):
 				if result.name in self.tableConfigs:
+					kwargs["result"] = result
 					break
 			else:
-				result=None
-		if not tableConfig:
-			if not tableConfigKey:
-				tableConfigKey = self.getTableConfigKey(
-					ti=ti, info=info, result=result, **kwargs
-				)
-			tableConfig = self.getTableConfig(
-				ti=ti,
-				info=info,
-				result=result,
-				tableConfigKey=tableConfigKey,
-				**kwargs
-			)
-		return ti.getTableManager(
-			info=info,
-			result=result,
-			tableConfigKey=tableConfigKey,
-			tableConfig=tableConfig,
-			**kwargs
-		)
+				result = None
+		if not kwargs.get("tableConfig"):
+			if not kwargs.get("tableConfigKey"):
+				kwargs["tableConfigKey"]  = tableConfigKey = getTableConfigKey(**kwargs)
+			tableConfig = getTableConfig(**kwargs)
+		res = nextHandler(**kwargs)
+		return res
 
 
 class TableHandlerRule(Rule):
 	
 	def createResult(self, node, context, index):
-		return TableHandlerResult(self, node, context, index)
+		result = TableHandlerResult(self, node, context, index)
+		try:
+			info = result.getTextInfo()
+			#table = getTableManager(info=info, debug=True)
+			table = getTableManager(info=info)
+			if table:
+				self.ruleManager.webModule.tableIDs[table.tableID] = result
+				table.__dict__.setdefault("reprTags", []).append("createResult")
+			else:
+				log.warning("No table found for result {!r} at {!r}".format(result.name, info.bookmark))
+		except Exception:
+			log.exception()
+		return result
 
 
 class TableHandlerResult(Result):

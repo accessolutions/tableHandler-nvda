@@ -22,10 +22,10 @@
 """Table Mode on documents
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.12"
+__version__ = "2021.10.20"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -54,8 +54,8 @@ import vision
 
 from globalPlugins.withSpeechMuted import speechMuted
 
-from . import TableHandler, getTableManager, registerTableHandler
-from .coreUtils import catchAll, getDynamicClass, getObjLogInfo
+from . import TableHandler, getTableConfig, getTableConfigKey, getTableManager
+from .coreUtils import Break, catchAll, getDynamicClass, getObjLogInfo
 from .fakeObjects import FakeObject
 from .fakeObjects.table import FakeTableManager, TextInfoDrivenFakeCell, TextInfoDrivenFakeRow
 from .scriptUtils import ScriptWrapper
@@ -83,69 +83,102 @@ SCRIPT_CATEGORY = "TableHandler"
 
 class DocumentTableHandler(TableHandler):
 	
-	def getTableConfigKey(self, info=None, tableCellCoords=None, **kwargs):
-		ti = self.__getTreeInterceptor(info)
-		if not isinstance(ti, TableHandlerTreeInterceptor):
-			log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
-			return None
-		if not tableCellCoords:
-			try:
-				tableCellCoords = ti._getTableCellCoordsIncludingLayoutTables(info)
-			except LookupError:
-				return None
-			return self.getTableConfigKey(info=info, tableCellCoords=tableCellCoords, **kwargs)
-		# TODO: Column headers sequence
-		return super(DocumentTableHandler, self).getTableConfigKey(
-			info=info, tableCellCoords=tableCellCoords, **kwargs
-		)
+	def getTableConfigKey(self, nextHandler=None, **kwargs):
+		try:
+			ti = kwargs.get("ti")
+			info = kwargs.get("info")
+			if not ti:
+				ti = self.__getTreeInterceptor(info)
+			if not isinstance(ti, TableHandlerTreeInterceptor):
+				log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
+				raise Break()
+			if not info:
+				kwargs["info"] = ti.selection
+			if not kwargs.get("tableCellCoords"):
+				assert info is not None
+				try:
+					tableCellCoords = ti._getTableCellCoordsIncludingLayoutTables(info)
+				except LookupError:
+					if kwargs.get("debug"):
+						log.exception()
+					raise Break
+				kwargs["tableCellCoords"] = tableCellCoords
+				return getTableConfigKey(**kwargs)
+			tempKwargs = kwargs.copy()
+			tempKwargs["tableConfigKey"] = "default"
+			table = getTableManager(**tempKwargs)
+			if not table:
+				raise Break
+			getattr(self, "tableManagers", {}).pop(table.tableID, None)
+			if not table._tableConfig:
+				raise Exception("wut?")
+			table.__dict__.setdefault("reprTags", []).append("temp")
+			cell = table._firstDataCell
+			if not cell:
+				del cell, table
+				raise Break
+			row = cell.row
+			headers = [cell.columnHeaderText for colNum, colSpan, cell in row._iterCells()]
+			if any(headers):
+				del cell, row, table
+				return {"columnHeaders": headers}
+			row = table._getRow(1)
+			if not row:
+				del cell, row, table
+				raise Break
+			headers = [cell.basicText for colNum, colSpan, cell in row._iterCells()]
+			if any(headers):
+				del cell, row, table
+				return {"columnHeaders": headers}
+		except Break:
+			pass
+		except Exception:
+# 			log.exception("getTableConfigKey({!r}, info={!r}, tableCellCoords={!r}, {!r})".format(
+# 				self, info, tableCellCoords, kwargs
+# 			))
+			log.exception("getTableConfigKey(kwargs={!r})".format(kwargs))
+			raise
+		return nextHandler(**kwargs)
 	
-	def getTableManager(
-		self,
-		info=None,
-		tableCellCoords=None,
-		tableConfigKey=None,
-		tableConfig=None,
-		setPosition=False,
-		force=False,
-		**kwargs
-	):
-		ti = self.__getTreeInterceptor(info)
+	def getTableManager(self, nextHandler=None, **kwargs):
+		if kwargs.get("debug"):
+			log.info(f"DTH.getTableManager({kwargs})")
+		ti = kwargs.get("ti")
+		info = kwargs.get("info")
+		if not ti:
+			ti = self.__getTreeInterceptor(info)
 		if not isinstance(ti, TableHandlerTreeInterceptor):
 			log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
 			return None
+		tableCellCoords = kwargs.get("tableCellCoords")
 		if not tableCellCoords:
 			func = ti._getTableCellCoordsIncludingLayoutTables
 			try:
-				tableCellCoords = func(info)
+				kwargs["tableCellCoords"] = tableCellCoords = func(info)
 			except LookupError:
+				if kwargs.get("debug"):
+					log.exception()
 				return None
-			return self.getTableManager(
-				info=info,
-				tableCellCoords=tableCellCoords,
-				tableConfigKey=tableConfigKey,
-				tableConfig=tableConfig,
-				setPosition=setPosition,
-				force=force,
-				**kwargs
-			)
+			if kwargs.get("debug"):
+				log.info(f"dispatching getTableManager({kwargs})")
+			return getTableManager(**kwargs)
 		tableID, isLayout, rowNum, colNum, rowSpan, colSpan = tableCellCoords
+		tableConfig = kwargs.get("tableConfig")
 		if not tableConfig:
+			tableConfigKey = kwargs.get("tableConfigKey")
 			if not tableConfigKey:
-				tableConfigKey = self.getTableConfigKey(
-					info=info, tableCellCoords=tableCellCoords, **kwargs
-				)
-			tableConfig = self.getTableConfig(tableConfigKey)
+				kwargs["tableConfigKey"] = tableConfigKey = getTableConfigKey(**kwargs)
+			kwargs["tableConfig"] = tableConfig = getTableConfig(**kwargs)
 		table = DocumentTableManager(
 			_tableConfig=tableConfig,
 			tableID=tableID,
 			ti=ti,
 			parent=ti.rootNVDAObject,
-			startPos=info,
+			startPos=info
 		)
-		if setPosition:
+		if kwargs.get("setPosition"):
 			table._currentRowNumber = rowNum
 			table._currentColumnNumber = colNum
-		#log.info(f"new position {info._startOffset if info else None}, ({rowNum}, {colNum}), {setPosition}, -({table._currentRowNumber}, {table._currentColumnNumber})")
 		return table
 	
 	def __getTreeInterceptor(self, info):
@@ -270,7 +303,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 		if not any((tryTableModeAfterIfBrowseMode, enableTableModeAfter, checkRestore)):
 			return
 		
-		def trailer():
+		def thtiswo_trailer():
 			passThrough = ti.passThrough
 			if passThrough == TABLE_MODE:
 				return
@@ -296,14 +329,18 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 					and before.compareEndPoints(after, "endToEnd") == 0
 				):
 					#log.info(f"No movement, restoring TABLE_MODE ({before._startOffset} / {after._startOffset}")
-					#ti.passThrough = TABLE_MODE
-					queueHandler.queueFunction(
-						queueHandler.eventQueue, setattr, ti, "passThrough", TABLE_MODE
-					)
+					ti.passThrough = TABLE_MODE
+					table = ti._currentTable
+					if table:
+						log.info("setting _shouldReportNextFocusEntered False")
+						table._shouldReportNextFocusEntered = False
+					#queueHandler.queueFunction(
+					#	queueHandler.eventQueue, setattr, ti, "passThrough", TABLE_MODE
+					#)
 					queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, ti)
 					return
 		
-		queueHandler.queueFunction(queueHandler.eventQueue, trailer)
+		queueHandler.queueFunction(queueHandler.eventQueue, thtiswo_trailer)
 
 
 class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTableHandler):
@@ -316,7 +353,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		self.autoTableMode = False
 		self._tableManagers = {}
 		self._currentTable = None
-		registerTableHandler(weakref.ref(self))
+		#registerTableHandler(weakref.ref(self))
 	
 	def __getattribute__(self, name):
 		value = super(TableHandlerTreeInterceptor, self).__getattribute__(name)
@@ -332,18 +369,21 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=True)
 		if state == TABLE_MODE:
 			table = self._currentTable
-			if table is not None:
-				#table._setPosition(self.selection)
-				table._setPosition(self.makeTextInfo(textInfos.POSITION_SELECTION))
-			else:
-				table = self._currentTable = self.getTableManager(
-					#info=self.selection,
-					info=self.makeTextInfo(textInfos.POSITION_SELECTION),
+			if table:
+				try:
+					table._setPosition(self.selection)
+				except ValueError:
+					table = None
+			if not table:
+				table = self._currentTable = getTableManager(
+					info=self.selection,
 					setPosition=True,
 					force=True
 				)
 				if table is None:
-					raise Exception("No table at current position")
+					state = False
+					if self._passThrough == state:
+						return
 			self._passThrough = state
 			queueHandler.queueFunction(queueHandler.eventQueue, table.setFocus)
 			return
@@ -367,7 +407,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			raise
 
 		def set_selection_trailer():
-			table = self._currentTable = self.getTableManager(info=info, setPosition=True)
+			oldTable = self._currentTable
+			table = self._currentTable = getTableManager(info=self.selection, setPosition=True)
+			if oldTable and table is not oldTable:
+				oldTable.__dict__.setdefault("reprTags", []).append("dropped by set_selection_trailer")
 			if table:
 				if False and not (reason == REASON_FOCUS and self.passThrough is False) and table != prevTable and (
 					not table
@@ -421,56 +464,77 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			func = TableHandlerTreeInterceptorScriptWrapper(self, func)
 		return func
 	
-	def getTableManager(self, tableCellCoords=None, setPosition=False, refresh=False, **kwargs):
-		#log.info(f"getTableManager(tableCellCoords={tableCellCoords!r}, setPosition={setPosition!r}, refresh={refresh!r}, kwargs={kwargs!r})")
+	def getTableManager(self, nextHandler=None, **kwargs):
+		if kwargs.get("debug"):
+			log.info(f"TI.getTableManager({kwargs})")
+		info = kwargs.get("info")
+		if info is None:
+			kwargs["info"] = info = self.selection
+		setPosition = kwargs.get("setPosition")
+		tableCellCoords = kwargs.get("tableCellCoords")
 		if tableCellCoords:
 			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = tableCellCoords
-			if not refresh:
+			if not kwargs.get("refresh"):
 				table = self._tableManagers.get(tableID)
 				if table:
-					return table
-		table = super(TableHandlerTreeInterceptor, self).getTableManager(
-			tableCellCoords=tableCellCoords, setPosition=setPosition, refresh=refresh, **kwargs
-		)
+					if (
+						"tableConfigKey" not in kwargs
+						or table._tableConfig.key == kwargs["tableConfigKey"]
+					):
+						if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
+							table._currentRowNumber = rowNum
+							table._currentColumnNumber = colNum
+						return table
+					else:
+						table.__dict__.setdefault("reprTags", []).append("dropped from cache")
+						if not self._tableManagers.pop(tableID, None):
+							log.error("Table was not in cache!")
+						if self._currentTable is table:
+							table.reprTags.append("was current")
+						del table
+		table = super(TableHandlerTreeInterceptor, self).getTableManager(nextHandler=nextHandler, **kwargs)
 		if table:
 			self._tableManagers[table.tableID] = table
-		if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
-			table._currentRowNumber = rowNum
-			table._currentColumnNumber = colNum
-		return table
+			if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
+				table._currentRowNumber = rowNum
+				table._currentColumnNumber = colNum
+			return table
+		return nextHandler(**kwargs)
 	
 	def makeTextInfo(self, position):
 		if isinstance(position, FakeObject):
 			return position.makeTextInfo(position)
 		return super(TableHandlerTreeInterceptor, self).makeTextInfo(position)
 	
-# 	def _focusLastFocusableObject(self, activatePosition=False):
-# 		"""Used when auto focus focusable elements is disabled to sync the focus
-# 		to the browse mode cursor.
-# 		When auto focus focusable elements is disabled, NVDA doesn't focus elements
-# 		as the user moves the browse mode cursor. However, there are some cases
-# 		where the user always wants to interact with the focus; e.g. if they press
-# 		the applications key to open the context menu. In these cases, this method
-# 		is called first to sync the focus to the browse mode cursor.
-# 		"""
-# 		#if activatePosition: # and self.passThrough == TABLE_MODE:
-# 		with speechMuted():
-# 			return super(TableHandlerTreeInterceptor, self)._focusLastFocusableObject(activatePosition=activatePosition)
-# 		obj = self.currentFocusableNVDAObject
-# 		#log.info(f"currentFocusableNVDAObject={getObjLogInfo(obj)}")
-# 		if obj!=self.rootNVDAObject and self._shouldSetFocusToObj(obj) and obj!= api.getFocusObject():
-# 			obj.setFocus()
-# 			if api.getFocusObject() is not obj:
-# 				api.setFocusObject(obj)
-# 			# We might be about to activate or pass through a key which will cause
-# 			# this object to change (e.g. checking a check box). However, we won't
-# 			# actually get the focus event until after the change has occurred.
-# 			# Therefore, we must cache properties for speech before the change occurs.
-# 			speech.speakObject(obj, REASON_ONLYCACHE)
-# 			self._objPendingFocusBeforeActivate = obj
-# 		if activatePosition:
-# 			# Make sure we activate the object at the caret, which is not necessarily focusable.
-# 			self._activatePosition()
+	def _focusLastFocusableObject(self, activatePosition=False):
+		"""Used when auto focus focusable elements is disabled to sync the focus
+		to the browse mode cursor.
+		When auto focus focusable elements is disabled, NVDA doesn't focus elements
+		as the user moves the browse mode cursor. However, there are some cases
+		where the user always wants to interact with the focus; e.g. if they press
+		the applications key to open the context menu. In these cases, this method
+		is called first to sync the focus to the browse mode cursor.
+		"""
+		#if activatePosition: # and self.passThrough == TABLE_MODE:
+		#with speechMuted():
+		#	return super(TableHandlerTreeInterceptor, self)._focusLastFocusableObject(activatePosition=activatePosition)
+		obj = self.currentFocusableNVDAObject
+		log.info(f"currentFocusableNVDAObject={getObjLogInfo(obj)}")
+		if obj!=self.rootNVDAObject and self._shouldSetFocusToObj(obj) and obj!= api.getFocusObject():
+			obj.setFocus()
+			if api.getFocusObject() is not obj:
+				api.setFocusObject(obj)
+			# We might be about to activate or pass through a key which will cause
+			# this object to change (e.g. checking a check box). However, we won't
+			# actually get the focus event until after the change has occurred.
+			# Therefore, we must cache properties for speech before the change occurs.
+			speech.speakObject(obj, REASON_ONLYCACHE)
+			self._objPendingFocusBeforeActivate = obj
+		else:
+			log.info(f"nope: _shouldSetFocusToObj={self._shouldSetFocusToObj(obj)}, isFocus={obj is api.getFocusObject()}")
+		if activatePosition:
+			# Make sure we activate the object at the caret, which is not necessarily focusable.
+			self._activatePosition()
 	
 	def _getTableCellCoordsIncludingLayoutTables(self, info):
 		"""
@@ -520,7 +584,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		super(TableHandlerTreeInterceptor, self)._handleUpdate()
 		if self.passThrough != TABLE_MODE:
 			return
-		table = self.getTableManager(info=self.selection, setPosition=True, refresh=True)
+		table = self._currentTable
+		oldTableID = table.tableID if table else None
+		table = getTableManager(info=self.selection, setPosition=True, refresh=True)
 		if table:
 			cell = table._currentCell
 			cache = getattr(cell.table.ti, "_speakObjectTableCellChildrenPropertiesCache", {})
@@ -539,6 +605,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 
 			focus = api.getFocusObject()
 			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
+				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
+				table._shouldReportNextFocusEntered = False
 				table.setFocus()
 	
 	def _loadBufferDone(self, success=True):
@@ -568,6 +636,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				# TODO: Support "focus follows caret"
 				table = self._currentTable
 				if table:
+					table._shouldReportNextFocusEntered = False
 					table.setFocus()
 					return
 		if isinstance(obj, FakeObject):
@@ -590,14 +659,16 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 	)
 	
 	def event_stateChange(self, obj, nextHandler):
-		#log.warning(f"event_stateChanged({args}, {kwargs})")
+		#log.warning(f"event_stateChanged({getObjLogInfo(obj)}, {nextHandler!r}): passThrough={self.passThrough}, isFocus={obj is api.getFocusObject()}, focus={getObjLogInfo(api.getFocusObject())}")
 		if self.passThrough == TABLE_MODE:
 			# Handled in `_handleUpdate`
 			return
 		func = getattr(super(TableHandlerTreeInterceptor, self), "event_stateChange", None)
 		if func:
+			#log.info("yes func")
 			func(obj, nextHandler)
 		else:
+			#log.info("nope func")
 			nextHandler()
 	
 	def script_nextColumn(self, gesture):
@@ -705,6 +776,11 @@ class DocumentFakeObject(FakeObject):
 
 class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 	
+	_cache_ti = False
+	
+	def _get_ti(self):
+		return self.table.ti
+	
 	def event_gainFocus(self):
 		#log.info(f"event_gainFocus({self!r}) - before: {self.table.ti.selection._startOffset}")
 		renewed = self.row._getCell(self.columnNumber, refresh=True)
@@ -722,6 +798,11 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 class DocumentFakeRow(TextInfoDrivenFakeRow, DocumentFakeObject):
 	
 	CellClass = DocumentFakeCell
+	
+	_cache_ti = False
+	
+	def _get_ti(self):
+		return self.table.ti
 
 
 class DocumentRootFakeObject(DocumentFakeObject):
@@ -729,6 +810,14 @@ class DocumentRootFakeObject(DocumentFakeObject):
 	def __init__(self, *args, ti=None, **kwargs):
 		super(DocumentRootFakeObject, self).__init__(*args, ti=ti, **kwargs)
 		self._parent = None
+	
+	_cache_ti = False
+	
+	def _get_ti(self):
+		return self._ti() if self._ti else None
+	
+	def _set_ti(self, value):
+		self._ti = weakref.ref(value)
 	
 	_cache_parent = False
 	
@@ -770,8 +859,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	def __init__(self, *args, ti=None, startPos=None, **kwargs):
 		super(DocumentTableManager, self).__init__(*args, ti=ti, startPos=startPos, **kwargs)
-		self._cache = None
-		self._lastRow = None
+		self._shouldReportNextFocusEntered = True
 	
 	def _get_field(self):
 		info = self.startPos if self.startPos else self._currentCell.info
@@ -798,8 +886,8 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 				rowNum = field.get("table-rownumber")
 				colNum = field.get("table-columnnumber")
 				if (
-					rowNum is not None and rowNum != self._tableConfig.columnHeaderRowNumber
-					and colNum is not None and colNum != self._tableConfig.rowHeaderColumnNumber
+					rowNum is not None and rowNum != self._tableConfig["columnHeaderRowNumber"]
+					and colNum is not None and colNum != self._tableConfig["rowHeaderColumnNumber"]
 				):
 					cell = self._getCell(rowNum, colNum)
 					return cell
@@ -807,12 +895,12 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	@catchAll(log)
 	def getScript(self, gesture):
-		if hasattr(gesture, "__BrowseModeFakeTableManager"):
+		if hasattr(gesture, "__DocumentTableManager"):
 			return None
 		func = super(DocumentTableManager, self).getScript(gesture)
 		if func is not None:
 			return func
-		setattr(gesture, "__BrowseModeFakeTableManager", None)  # Avoid recursion
+		setattr(gesture, "__DocumentTableManager", None)  # Avoid recursion
 		
 		# From `scriptHandler.findScript`
 		globalMapScripts = []
@@ -836,6 +924,14 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	def _iterCellsTextInfos(self, rowNumber):
 		return self.ti._iterTableCells(self.tableID, row=rowNumber)
+	
+	def _reportFocusEntered(self):
+		if not self._shouldReportNextFocusEntered:
+			#log.info("_reportFocusEntered: no")
+			self._shouldReportNextFocusEntered = True
+			return
+		#log.info("_reportFocusEntered: yes")
+		super(DocumentTableManager, self)._reportFocusEntered()
 	
 	def _setPosition(self, info):
 		#log.info(f"_setPosition({info._startOffset})")

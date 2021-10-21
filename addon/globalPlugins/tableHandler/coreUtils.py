@@ -22,10 +22,10 @@
 """Core utilities
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.21"
+__version__ = "2021.10.20"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -36,11 +36,17 @@ import api
 from logHandler import log
 
 
+class Break(Exception):
+	"""Block-level break.
+	"""
+
+
 def getObjLogInfo(obj):
 	from pprint import pformat
 	import globalVars
 	info = {
 		"obj": repr(obj),
+		"role": obj.role,
 		"isFocus": globalVars.focusObject is obj,
 		"(windowHandle, objectID, childID)": (
 			getattr(obj, "event_windowHandle", None),

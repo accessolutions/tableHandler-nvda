@@ -22,10 +22,10 @@
 """Table Handler Global Plugin
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.21"
+__version__ = "2021.10.20"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -203,12 +203,12 @@ class FakeObject(NVDAObject):
 			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
 	
 	def setFocus(self):
-		ti = self.parent.treeInterceptor
-		if isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor):
-			# Normally, when entering browse mode from a descendant (e.g. dialog),
-			# we want the cursor to move to the focus (#3145).
-			# However, we don't want this for fake objects, as these aren't focusable.
-			ti._enteringFromOutside = True
+# 		ti = self.parent.treeInterceptor
+# 		if isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor):
+# 			# Normally, when entering browse mode from a descendant (e.g. dialog),
+# 			# we want the cursor to move to the focus (#3145).
+# 			# However, we don't want this for fake objects, as these aren't focusable.
+# 			ti._enteringFromOutside = True
 		# This might get called from a background thread and all NVDA events must run in the main thread.
 		eventHandler.queueEvent("gainFocus", self)
 	

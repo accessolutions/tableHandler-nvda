@@ -22,10 +22,10 @@
 """Table Handler Global Plugin
 """
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.12"
+__version__ = "2021.10.20"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -322,7 +322,7 @@ class Cell(ScriptableObject):
 			
 			def loseFocus_trailer():
 				focus = api.getFocusObject()
-				if getattr(focus, "table", None) is not self.table:
+				if getattr(focus, "table", None) is not table:
 					table._hasFocusEntered = False
 			
 			queueHandler.queueFunction(queueHandler.eventQueue, loseFocus_trailer)
@@ -358,7 +358,7 @@ class Row(ScriptableObject):
 	def _get_focusRedirect(self):
 		obj = self._currentCell
 		# Oddly, NVDA's EventExecutor does not care about chained redirection
-		return obj.focusRedirect or obj
+		return obj and (obj.focusRedirect or obj)
 	
 	_cache_table = False
 	
@@ -415,6 +415,16 @@ class TableManager(ScriptableObject):
 		super(TableManager, self).__init__(*args, **kwargs)
 		self.initOverlayClass()
 	
+	def __repr__(self):
+		try:
+			tableID = self.tableID
+		except Exception:
+			tableID = None
+		tags = getattr(self, "reprTags", None)
+		if tags:
+			return "<Table {} ({})>".format(tableID, ", ".join(tags))
+		return "<Table {}>".format(tableID)
+	
 	def initOverlayClass(self):
 		self._currentColumnNumber = 1
 		self._currentRowNumber = 1
@@ -428,7 +438,7 @@ class TableManager(ScriptableObject):
 	def _get_focusRedirect(self):
 		obj = self._currentRow
 		# Oddly, NVDA's `executeEvent` does not care about chained redirection
-		return obj.focusRedirect or obj
+		return obj and (obj.focusRedirect or obj)
 	
 	_cache__currentCell = False
 	
@@ -439,18 +449,7 @@ class TableManager(ScriptableObject):
 			if cell.table is self and cell.rowNumber == self._currentRowNumber:
 				if cell.columnNumber == self._currentColumnNumber:
 					return cell
-# 				log.info(f"nope1: focus={focus!r} passThrough={self.ti.passThrough}")
 				return cell.row._currentCell
-# 			log.info(
-# 				f"nope2:"
-# 				f" focus={focus!r}"
-# 				f" passThrough={self.ti.passThrough}"
-# 				f" tableID={self.tableID}"
-# 				f" self={focus.table is self}"
-# 				f" ({focus.table._currentRowNumber}, {focus.table._currentRowNumber})"
-# 			)
-# 		else:
-# 			log.info(f"nope3: focus={focus!r} passThrough={self.ti.passThrough}")
 		return self._getCell(self._currentRowNumber, self._currentColumnNumber)
 	
 	_cache__currentRow = False
@@ -535,9 +534,9 @@ class TableManager(ScriptableObject):
 				return
 			content.append(cell.basicText)
 		
-		headerRowNum = self._tableConfig.columnHeaderRowNumber
+		headerRowNum = self._tableConfig["columnHeaderRowNumber"]
 		inColHeader = headerRowNum == curRowNum or curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
-		headerColNum = self._tableConfig.rowHeaderColumnNumber
+		headerColNum = self._tableConfig["rowHeaderColumnNumber"]
 		inRowHeader = headerColNum == curColNum or curCell.role == controlTypes.ROLE_TABLEROWHEADER
 		inHeader = inColHeader or inRowHeader
 				
@@ -673,8 +672,7 @@ class TableManager(ScriptableObject):
 		self._reportCellChange(axis=AXIS_COLUMNS)
 
 	def _reportFocusEntered(self):
-		#self._reportColumnChange()
-		pass
+		self._reportColumnChange()
 	
 	def _reportRowChange(self):
 		self._reportCellChange(axis=AXIS_ROWS)
@@ -901,22 +899,22 @@ class TableManager(ScriptableObject):
 	script_selectRow.__doc__ = _("Select the current row, if supported")
 	
 	def script_setColumnHeader(self, gesture):
-		headerNum = self._tableConfig.columnHeaderRowNumber
+		headerNum = self._tableConfig["columnHeaderRowNumber"]
 		curNum = self._currentRowNumber
 		#marked = self._markedRowNumbers
 		#marked.pop(curNum, None)
 		if headerNum == curNum:
-			self._tableConfig.columnHeaderRowNumber = None
+			self._tableConfig["columnHeaderRowNumber"] = None
 			try:
 				headerText = self._currentCell.columnHeaderText
 			except NotImplementedError:
 				headerText = ""
 			ui.message(_("Column header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
-			self._tableConfig.columnHeaderRowNumber = False
+			self._tableConfig["columnHeaderRowNumber"] = False
 			ui.message(_("Column header muted"))
 		else:
-			self._tableConfig.columnHeaderRowNumber = curNum
+			self._tableConfig["columnHeaderRowNumber"] = curNum
 			#marked[curNum] = None
 			ui.message(_("Row set as column header"))
 	
@@ -925,12 +923,12 @@ class TableManager(ScriptableObject):
 	script_setColumnHeader.__doc__ = _("Set the current row as column header")
 	
 	def script_setRowHeader(self, gesture):
-		headerNum = self._tableConfig.rowHeaderColumnNumber
+		headerNum = self._tableConfig["rowHeaderColumnNumber"]
 		curNum = self._currentColumnNumber
 		marked = self._markedColumnNumbers
 		marked.pop(headerNum, None)
 		if headerNum == curNum:
-			self._tableConfig.rowHeaderColumnNumber = None
+			self._tableConfig["rowHeaderColumnNumber"] = None
 			try:
 				headerText = self._currentCell.rowHeaderText
 			except NotImplementedError:
@@ -938,11 +936,11 @@ class TableManager(ScriptableObject):
 			# Translators: Reported when customizing row headers
 			ui.message(_("Row header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
-			self._tableConfig.rowHeaderColumnNumber = False
+			self._tableConfig["rowHeaderColumnNumber"] = False
 			# Translators: Reported when customizing row headers
 			ui.message(_("Row header muted"))
 		else:
-			self._tableConfig.rowHeaderColumnNumber = curNum
+			self._tableConfig["rowHeaderColumnNumber"] = curNum
 			marked[curNum] = None
 			# Translators: Reported when customizing row headers
 			ui.message(_("Column set as row header"))
@@ -956,7 +954,7 @@ class TableManager(ScriptableObject):
 		if not curColNum:
 			ui.message(translate("Noe in a table cell"))
 			return
-		if curColNum == self._tableConfig.rowHeaderColumnNumber:
+		if curColNum == self._tableConfig["rowHeaderColumnNumber"]:
 			# Translators: Reported when attempting to mark a column
 			msg = _("This column is already marked as row header.")
 			hint = getScriptGestureHint(

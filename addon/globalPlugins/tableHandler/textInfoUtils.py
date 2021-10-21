@@ -23,7 +23,7 @@
 """
 
 
-# Get ready for Python 3
+# Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
 __version__ = "2021.10.07"

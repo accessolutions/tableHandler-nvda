@@ -19,13 +19,18 @@ __license__ = "GPL"
 
 
 from functools import wraps
-import sys
-import threading
 
 import globalPluginHandler
 from logHandler import log, stripBasePathFromTracebackText
 import queueHandler
 import speech
+
+try:
+	from six.moves._thread import get_ident
+except ImportError:
+	# NVDA version < 2018.3
+	import threading
+	get_ident = lambda: threading.current_thread.ident
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -38,32 +43,46 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		speech.speak = _speak
 	
 	def terminate(self):
-		if (
-			(sys.version_info[0] == 2 and queueHandler.queueFunction.__func__ is not _queueFunction)
-			or (sys.version_info[0] == 3 and queueHandler.queueFunction is not _queueFunction)
-		):
-			log.error("Monkey-patch has been overridden: queueHandler.queueFunction")
-		queueHandler.queueFunction = _queueFunction.super
-		if (
-			(sys.version_info[0] == 2 and speech.speak.__func__ is not _speak)
-			or (sys.version_info[0] == 3 and speech.speak is not _speak)
-		):
-			log.error("Monkey-patch has been overridden: speech.speak")
-		speech.speak = _speak
+		setter = lambda value: setattr(queueHandler, "queueFunction", value)
+		obj = queueHandler.queueFunction
+		while True:
+			if obj is not _queueFunction:
+				if not hasattr(obj, "super"):
+					log.error("Monkey-patch has been overridden: queueHandler.queueFunction")
+					queueHandler.queueFunction = obj
+					break
+				setter = lambda value, obj=obj: setattr(obj, "super", value)
+				obj = obj.super
+				continue
+			setter(obj.super)
+			break
+		setter = lambda value: setattr(speech, "speak", value)
+		obj = speech.speak
+		while True:
+			if obj is not _speak:
+				if not hasattr(obj, "super"):
+					log.error("Monkey-patch has been overridden: speech.speak")
+					speech.speak = obj
+					break
+				setter = lambda value, obj=obj: setattr(obj, "super", value)
+				obj = obj.super
+				continue
+			setter(obj.super)
+			break
 
 
 _activeContextsByThread = {}
 
 
 def _queueFunction(queue, func, *args, **kwargs):
-	ctx = _activeContextsByThread.get(threading.get_ident())
+	ctx = _activeContextsByThread.get(get_ident())
 	if ctx and ctx.propagates:
 		func = _decorator(func, ctx.increment)
 	return _queueFunction.super(queue, func, *args, **kwargs)
 
 
 def _speak(*args, **kwargs):
-	ctx = _activeContextsByThread.get(threading.get_ident())
+	ctx = _activeContextsByThread.get(get_ident())
 	if ctx and ctx.level < 0:
 		ctx.mute(_speak, *args, **kwargs)
 		return
@@ -82,7 +101,7 @@ class _SpeechContextManager(object):
 		self.muted = []
 	
 	def __enter__(self):
-		ident = threading.get_ident()
+		ident = get_ident()
 		parent = self.parent = _activeContextsByThread.get(ident)
 		increment = self.increment
 		self.level = (parent.level if parent else 0) + increment
@@ -92,7 +111,7 @@ class _SpeechContextManager(object):
 		return self
 	
 	def __exit__(self, exc_type, exc_value, traceback):
-		ident = threading.get_ident()
+		ident = get_ident()
 		parent = self.parent
 		if parent:
 			_activeContextsByThread[ident] = parent

@@ -13,20 +13,13 @@
 from __future__ import absolute_import, division, print_function
 
 
-__version__ = "2021.09.16"
+__version__ = "2021.10.20"
 __author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
-import inspect
-from itertools import chain
-from six import text_type
-import sys
-import threading
-import traceback
-
 import globalPluginHandler
-from logHandler import log, stripBasePathFromTracebackText
+from logHandler import log
 import scriptHandler
 
 
@@ -38,12 +31,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		scriptHandler.executeScript = _executeScript
 	
 	def terminate(self):
-		if (
-			(sys.version_info[0] == 2 and scriptHandler.executeScript.__func__ is not _executeScript)
-			or (sys.version_info[0] == 3 and scriptHandler.executeScript is not _executeScript)
-		):
-			log.error("Monkey-patch has been overridden: scriptHandler.executeScript")
-		scriptHandler.executeScript = _executeScript.super
+		setter = lambda value: setattr(scriptHandler, "executeScript", value)
+		obj = scriptHandler.executeScript
+		while True:
+			if obj is not _executeScript:
+				if hasattr(obj, "super"):
+					setter = lambda value, obj=obj: setattr(obj, "super", value)
+					obj = obj.super
+					continue
+				else:
+					log.error("Monkey-patch has been overridden: scriptHandler.executeScript")
+					scriptHandler.executeScript = obj
+					break
+			setter(obj.super)
+			break
 
 
 _lastScriptCount = None
@@ -57,6 +58,9 @@ def _executeScript(script, gesture):
 		not scriptHandler._isScriptRunning
 		and lastScript == getattr(script, "__func__", script)
 	):
+		if _lastScriptCount is None:
+			# Happens only with the reloadPlugins global command
+			_lastScriptCount = 0
 		_lastScriptCount += 1
 	else:
 		_lastScriptCount = 0
