@@ -425,7 +425,6 @@ class TableManager(ScriptableObject):
 	def initOverlayClass(self):
 		self._currentColumnNumber = 1
 		self._currentRowNumber = 1
-		self._markedColumnNumbers = {}
 		#global _tableManager
 		#_tableManager = self
 	
@@ -594,17 +593,18 @@ class TableManager(ScriptableObject):
 		content.append(curCell)
 		
 		if inColHeader:
-			marked = self._markedColumnNumbers
-			if curColNum in marked:
+			marked = self._tableConfig["markedColumnNumbers"]
+			strCurColNum = str(curColNum)  # JSON mappings only support strings as key
+			if strCurColNum in marked:
 				if axis == AXIS_ROWS or curColNum != headerColNum:
 					# Translators: Announced when moving to a marked header cell
 					content.append(_("Column marked"))
 					if axis == AXIS_ROWS:
 						if len(marked) > 1:
 							content.append(translate("{number} out of {total}").format(
-								number=list(sorted(marked)).index(curColNum) + 1, total=len(marked)
+								number=list(sorted(marked)).index(strCurColNum) + 1, total=len(marked)
 							))
-					if marked[curColNum]:
+					if marked[strCurColNum]:
 						# Translators: Announced when moving to a marked header cell
 						content.append(_("with announce"))
 					else:
@@ -622,16 +622,17 @@ class TableManager(ScriptableObject):
 		if inRowHeader:
 			# TODO: Implement marked rows
 			marked = {headerRowNum: False} if isinstance(headerRowNum, int) else {}
-			if curRowNum in marked:
+			strCurRowNum = curRowNum  # JSON mappings only support strings as key
+			if strCurRowNum in marked:
 				if axis == AXIS_COLUMNS or curRowNum != headerRowNum:
 					# Translators: Announced when moving to a marked header cell
 					content.append(_("Row marked"))
 					if axis == AXIS_COLUMNS:
 						if len(marked) > 1:
 							content.append(translate("{number} out of {total}").format(
-								number=list(marked).index(curRowNum) + 1, total=len(marked)
+								number=list(marked).index(strCurRowNum) + 1, total=len(marked)
 							))
-					if marked[curRowNum]:
+					if marked[strCurRowNum]:
 						# Translators: Announced when moving to a marked header cell
 						content.append(_("with announce"))
 					else:
@@ -646,12 +647,16 @@ class TableManager(ScriptableObject):
 					content.append(_("1 row marked"))
 		if not inHeader:
 			if axis == AXIS_COLUMNS:
-				marked = []
+				marked = []  # TODO: Implement marked rows
 			else:
-				marked = [
-					colNum for colNum, announce in self._markedColumnNumbers.items()
-					if announce and colNum not in (curColNum, headerColNum)
-				]
+				strCurColNum = str(curColNum)  # JSON mappings only support strings as key
+				# The following `sorted` leads to announcing in natural columns order
+				# rather than in the order of which the columns were marked.
+				# TODO: Make marked columns announce order configuration?
+				marked = sorted([
+					int(strColNum) for strColNum, announce in self._tableConfig["markedColumnNumbers"].items()
+					if announce and strColNum not in (strCurColNum, headerColNum)
+				])
 			for colNum in marked:
 				appendCell(colNum)
 		
@@ -805,7 +810,8 @@ class TableManager(ScriptableObject):
 			ui.message(translate("Not in a table cell"))
 			return
 		curColIsMarked = False
-		for marked in sorted(self._markedColumnNumbers):
+		for marked in sorted(self._tableConfig["markedColumnNumbers"]):
+			marked = int(marked)  # JSON mappings only support strings as key
 			if marked > columnNumber:
 				self._moveToColumn(marked)
 				return
@@ -830,7 +836,8 @@ class TableManager(ScriptableObject):
 	def script_moveToPreviousMarkedColumn(self, gesture):
 		columnNumber = self._currentColumnNumber
 		curColIsMarked = False
-		for marked in reversed(sorted(self._markedColumnNumbers)):
+		for marked in reversed(sorted(self._tableConfig["markedColumnNumbers"])):
+			marked = int(marked)  # JSON mappings only support strings as key
 			if marked < columnNumber:
 				self._moveToColumn(marked)
 				return
@@ -922,8 +929,9 @@ class TableManager(ScriptableObject):
 	def script_setRowHeader(self, gesture):
 		headerNum = self._tableConfig["rowHeaderColumnNumber"]
 		curNum = self._currentColumnNumber
-		marked = self._markedColumnNumbers
-		marked.pop(headerNum, None)
+		cfg = self._tableConfig
+		marked = cfg["markedColumnNumbers"]
+		marked.pop(str(headerNum), None)
 		if headerNum == curNum:
 			self._tableConfig["rowHeaderColumnNumber"] = None
 			try:
@@ -938,9 +946,10 @@ class TableManager(ScriptableObject):
 			ui.message(_("Row header muted"))
 		else:
 			self._tableConfig["rowHeaderColumnNumber"] = curNum
-			marked[curNum] = None
+			marked[str(curNum)] = None
 			# Translators: Reported when customizing row headers
 			ui.message(_("Column set as row header"))
+		cfg["markedColumnNumbers"] = marked
 	
 	script_setRowHeader.canPropagate = True
 	# Translators: The description of a command.
@@ -964,19 +973,24 @@ class TableManager(ScriptableObject):
 				msg += " " + hint
 			ui.message(msg)
 			return
-		marked = self._markedColumnNumbers
-		if curColNum in marked:
-			announce = marked[curColNum]
+		cfg = self._tableConfig
+		marked = cfg["markedColumnNumbers"]
+		strCurColNum = str(curColNum)  # JSON mappings only support strings as key
+		if strCurColNum in marked:
+			announce = marked[strCurColNum]
 			if announce:
-				marked[curColNum] = False
+				marked[strCurColNum] = False
+				cfg["markedColumnNumbers"] = marked
 				# Translators: Reported when toggling marked columns
 				ui.message(_("Column {} marked without announce").format(curColNum))
 				return
-			del marked[curColNum]
+			del marked[strCurColNum]
+			cfg["markedColumnNumbers"] = marked
 			# Translators: Reported when toggling marked columns
 			ui.message(_("Column {} unmarked").format(curColNum))
 			return
-		marked[curColNum] = True
+		marked[strCurColNum] = True
+		cfg["markedColumnNumbers"] = marked
 		# Translators: Reported when toggling marked columns
 		ui.message(_("Column {} marked with announce").format(curColNum))
 	

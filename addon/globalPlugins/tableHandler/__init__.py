@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.20"
+__version__ = "2021.10.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -197,7 +197,8 @@ class TableConfig(object):
 		"defaultColumnWidth" : 10,
 		"columnWidths" : {},
 		"columnHeaderRowNumber": None,
-		"rowHeaderColumnNumber": None
+		"rowHeaderColumnNumber": None,
+		"markedColumnNumbers": {}
 	}
 	
 	FILE_PATH = os.path.join(globalVars.appArgs.configPath, "tableHandler.json")
@@ -265,7 +266,20 @@ class TableConfig(object):
 		return item in self.data or item in self.defaults
 	
 	def __getitem__(self, name, default=None):
-		return self.data.get(name, self.defaults.get(name, default))
+		try:
+			return self.data[name]
+		except KeyError:
+			try:
+				value = self.defaults[name]
+			except KeyError:
+				return default
+			# Copy containers to avoid accidentally impacting the defaults.
+			# We might need a real deep-copy here in the future.
+			if isinstance(value, dict):
+				value = value.copy()
+			elif isinstance(value, list):
+				value = value[:]
+			return value
 	
 	def __setitem__(self, name, value):
 		self.data[name] = value
