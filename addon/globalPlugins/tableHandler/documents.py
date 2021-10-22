@@ -112,7 +112,7 @@ class DocumentTableHandler(TableHandler):
 			getattr(self, "tableManagers", {}).pop(table.tableID, None)
 			if not table._tableConfig:
 				raise Exception("wut?")
-			table.__dict__.setdefault("reprTags", []).append("temp")
+			table.__dict__.setdefault("_trackingInfo", []).append("temp")
 			cell = table._firstDataCell
 			if not cell:
 				del cell, table
@@ -133,9 +133,6 @@ class DocumentTableHandler(TableHandler):
 		except Break:
 			pass
 		except Exception:
-# 			log.exception("getTableConfigKey({!r}, info={!r}, tableCellCoords={!r}, {!r})".format(
-# 				self, info, tableCellCoords, kwargs
-# 			))
 			log.exception("getTableConfigKey(kwargs={!r})".format(kwargs))
 			raise
 		return nextHandler(**kwargs)
@@ -332,7 +329,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 					ti.passThrough = TABLE_MODE
 					table = ti._currentTable
 					if table:
-						log.info("setting _shouldReportNextFocusEntered False")
+						#log.info("setting _shouldReportNextFocusEntered False")
 						table._shouldReportNextFocusEntered = False
 					#queueHandler.queueFunction(
 					#	queueHandler.eventQueue, setattr, ti, "passThrough", TABLE_MODE
@@ -396,8 +393,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		#log.info(f"_set_selection({info._startOffset}, {reason})")
 		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=True)
 		if reason == REASON_TABLE_MODE:
-			#with speechMuted():
-			super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=REASON_CARET)
+			with speechMuted():
+				super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=REASON_CARET)
 			return
 		prevTable = self._currentTable
 		try:
@@ -410,7 +407,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			oldTable = self._currentTable
 			table = self._currentTable = getTableManager(info=self.selection, setPosition=True)
 			if oldTable and table is not oldTable:
-				oldTable.__dict__.setdefault("reprTags", []).append("dropped by set_selection_trailer")
+				oldTable.__dict__.setdefault("_trackingInfo", []).append("dropped by set_selection_trailer")
 			if table:
 				if False and not (reason == REASON_FOCUS and self.passThrough is False) and table != prevTable and (
 					not table
@@ -486,11 +483,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 							table._currentColumnNumber = colNum
 						return table
 					else:
-						table.__dict__.setdefault("reprTags", []).append("dropped from cache")
+						table.__dict__.setdefault("_trackingInfo", []).append("dropped from cache")
 						if not self._tableManagers.pop(tableID, None):
 							log.error("Table was not in cache!")
 						if self._currentTable is table:
-							table.reprTags.append("was current")
+							table._trackingInfo.append("was current")
 						del table
 		table = super(TableHandlerTreeInterceptor, self).getTableManager(nextHandler=nextHandler, **kwargs)
 		if table:
@@ -665,10 +662,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			return
 		func = getattr(super(TableHandlerTreeInterceptor, self), "event_stateChange", None)
 		if func:
-			#log.info("yes func")
 			func(obj, nextHandler)
 		else:
-			#log.info("nope func")
 			nextHandler()
 	
 	def script_nextColumn(self, gesture):

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.30"
+__version__ = "2021.10.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -179,7 +179,7 @@ class TableHandlerRule(Rule):
 			table = getTableManager(info=info)
 			if table:
 				self.ruleManager.webModule.tableIDs[table.tableID] = result
-				table.__dict__.setdefault("reprTags", []).append("createResult")
+				table.__dict__.setdefault("_trackingInfo", []).append("createResult")
 			else:
 				log.warning("No table found for result {!r} at {!r}".format(result.name, info.bookmark))
 		except Exception:

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.20"
+__version__ = "2021.10.21"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -420,9 +420,6 @@ class TableManager(ScriptableObject):
 			tableID = self.tableID
 		except Exception:
 			tableID = None
-		tags = getattr(self, "reprTags", None)
-		if tags:
-			return "<Table {} ({})>".format(tableID, ", ".join(tags))
 		return "<Table {}>".format(tableID)
 	
 	def initOverlayClass(self):

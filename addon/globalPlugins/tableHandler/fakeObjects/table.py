@@ -125,39 +125,12 @@ class FakeCell(Cell, FakeObject):
 		return self.row.rowNumber
 
 
-class TextInfoDrivenFakeCellThread(threading.Thread):
-	
-	POLL_INTERVAL = 100
-	
-	def __init__(self, cell):
-		super(TextInfoDrivenFakeCellThread, self).__init__(
-			name="TextInfoDrivenFakeCellThread({!r})".format(cell)
-		)
-		self.daemon = True
-		self.cell = weakref.ref(cell)
-	
-	def run(self):
-		while True:
-			time.sleep(self.POLL_INTERVAL)
-			cell = self.cell()
-			if not cell:
-				return
-			
-			def textInfoDrivenFakeCellUpdate():
-				newCell = self.table._getCell(cell.rowNumber, cell.columnNumber)
-				cell.info = newCell.info
-				cell.row = newCell.row
-			
-			queueHandler.queueFunction(queueHandler.eventQueue, textInfoDrivenFakeCellUpdate)
-			
-
 class TextInfoDrivenFakeCell(FakeCell):
 	
 	_childAccess = CHILD_ACCESS_ITERATION
 	
 	def __init__(self, *args, **kwargs):
 		super(TextInfoDrivenFakeCell, self).__init__(*args, **kwargs)
-		#TextInfoDrivenFakeCellThread(self).start()
 	
 	def __del__(self):
 		self.info = None
@@ -362,8 +335,6 @@ class FakeTableManager(TableManager, FakeObject):
 	RowClass = FakeRow
 	_childAccess = CHILD_ACCESS_ITERATION
 	
-# 	def __init__(self, *args, parent=None, **kwargs):
-# 		super(FakeTableManager, self).__init__(*args, parent=parent, **kwargs)
 	def __init__(self, *args, **kwargs):
 		super(FakeTableManager, self).__init__(*args, **kwargs)
 		self._rows = {}
