@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.11.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -140,24 +140,52 @@ class ColumnSeparatorRegion(braille.Region):
 class RowRegionBuffer(TabularBrailleBuffer):
 	
 	def __init__(self, rowRegion):
-		self.rowRegion = weakref.proxy(rowRegion)
 		super(RowRegionBuffer, self).__init__()
+		self.rowRegion = weakref.proxy(rowRegion)
+		self.resizingCell = None
 	
 	def onRegionUpdatedAfterPadding(self, region):
-		cell = None
-		obj = region.obj
-		if isinstance(obj, Cell):
-			cell = obj
+		if isinstance(region, CellRegion):
+			obj = region.obj
+			brailleCells = region.brailleCells
+			isCellRegion = True
 		else:
-			cell = getattr(obj, "cell", None)
-		if cell.columnNumber == cell.table._currentColumnNumber:
-			#if cell is not self.rowRegion.obj and not isinstance(cell, weakref.ProxyType):
-			#	log.warning(f"{cell!r} is not {self.rowRegion.obj!r}")
-			# Create a new list to preserve the shared list of ColumnSeparatorRegion.
-			region.brailleCells = [cell | braille.SELECTION_SHAPE for cell in region.brailleCells]
-			if getattr(cell, "isResizingColumnWidthBraille", False):
-				cell.resizingCell.effectiveColumnWidthBraille = region.width
-				cell.resizingCell.columnsAfterInBrailleWindow = 0
+			assert isinstance(region, ColumnSeparatorRegion)
+			if not isinstance(region, ColumnSeparatorRegion):
+				raise ValueError(region)
+			obj = region.obj.cell
+			# Preserve the shared class attribute
+			brailleCells = region.brailleCells = region.brailleCells.copy()
+			isCellRegion = False
+		if obj.columnNumber == obj.table._currentColumnNumber:
+			#if obj is not self.rowRegion.obj and not isinstance(obj, weakref.ProxyType):
+			#	log.warning(f"{obj!r} is not {self.rowRegion.obj!r}")
+			markStart = 0
+			if isCellRegion:
+				if self.rowRegion.isResizingColumnWidth:
+					markEnd = obj.table._tableConfig.getColumnWidth(obj.columnNumber)
+					obj.columnsAfterInBrailleWindow = 0
+					obj.effectiveColumnWidthBraille = region.width
+					self.resizingCell = obj
+				else:
+					markEnd = None
+			else:
+				markEnd = next((
+					index + 1
+					for index, brailleCell in reversed(list(enumerate(brailleCells)))
+					if brailleCell
+				), 0)
+			brailleCells[markStart:markEnd] = [
+				brailleCell | braille.SELECTION_SHAPE
+				for brailleCell in brailleCells[markStart:markEnd]
+			]
+		elif self.resizingCell and isCellRegion:
+			self.resizingCell.columnsAfterInBrailleWindow += 1
+	
+	def update(self):
+		self.resizingCell = None
+		super(RowRegionBuffer, self).update()
+		self.resizingCell = None
 
 
 class RowRegion(braille.TextInfoRegion):
@@ -170,17 +198,17 @@ class RowRegion(braille.TextInfoRegion):
 		self.buffer = RowRegionBuffer(self)
 		self.windowNumber = None
 		self.maxWindowNumber = None
+		self.cell = cell
 		self.row = weakref.proxy(cell.row)
 		self.table = weakref.proxy(self.row.table)
+		self.isResizingColumnWidth = False
 		#global _region
 		#_region = self
 	
 	def getColumns(self):
 		#from pprint import pformat
 		from .fakeObjects.table import ColumnSeparator
-		cells = []
-		for colNum, colSpan, cell in self.row._iterCells():
-			cells.append(cell)
+		cells = [cell for colNum, colSpan, cell in self.row._iterCells()]
 		#log.info(f"cells: {pformat(cells, indent=2)}")
 		columns = []
 		displaySize = braille.handler.displaySize
@@ -223,6 +251,13 @@ class RowRegion(braille.TextInfoRegion):
 					winNum += 1
 					winSize = 0
 					break
+		if columns:
+			assert len(columns) >= 2
+			# Remove the last column separator and expand the last column to the display size
+			del columns[-1]
+			lastWinNum, lastWidth, lastCell = columns[-1]
+			lastWidth += displaySize - winSize
+			columns[-1] = (lastWinNum, lastWidth, lastCell)
 		#log.info(f"columns: {pformat(columns, indent=4)}")
 		return columns
 	
@@ -236,7 +271,7 @@ class RowRegion(braille.TextInfoRegion):
 					columns = []
 				lastWinNum = winNum
 				columns.append((width, obj))
-				if obj == self.obj:
+				if obj == self.cell:
 					self.windowNumber = winNum
 			elif winNum == self.windowNumber:
 				columns.append((width, obj))
@@ -275,7 +310,6 @@ class RowRegion(braille.TextInfoRegion):
 		self.rawText = buffer.windowRawText
 		self.brailleCells = buffer.windowBrailleCells
 		self.cursorPos = buffer.cursorWindowPos
-		
 	
 	def previousLine(self, start=False):
 		# Pan left rather than moving to the previous line.

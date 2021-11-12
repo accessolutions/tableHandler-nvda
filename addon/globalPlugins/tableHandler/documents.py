@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.11.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -1059,7 +1059,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		super(DocumentTableManager, self)._reportFocusEntered()
 	
 	def _setPosition(self, info):
-		log.info(f"_setPosition({info._startOffset})", stack_info=True)
+		#log.info(f"_setPosition({info._startOffset})", stack_info=True)
 		func = self.ti._getTableCellCoordsIncludingLayoutTables
 		tableID = None
 		try:
