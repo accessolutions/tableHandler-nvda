@@ -25,13 +25,13 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.21"
+__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
-import six
 import weakref
 
+from NVDAObjects import NVDAObject
 import addonHandler
 import api
 from baseObject import ScriptableObject
@@ -51,11 +51,22 @@ from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepea
 from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
 
 from .coreUtils import translate
-from .compoundDocuments import CompoundDocument
-from .brailleUtils import TabularBrailleBuffer
+#from .compoundDocuments import CompoundDocument
+from .brailleUtils import (
+	TabularBrailleBuffer,
+	brailleCellsDecimalStringToIntegers,
+	brailleCellsIntegersToUnicode
+)
 from .fakeObjects import FakeObject
 from .scriptUtils import getScriptGestureHint
 from .tableUtils import getColumnSpanSafe, getRowSpanSafe
+
+
+try:
+	from six import string_types
+except ImportError:
+	# NVDA version < 2018.3
+	string_types = (str, unicode)
 
 
 addonHandler.initTranslation()
@@ -65,7 +76,6 @@ SCRIPT_CATEGORY = "TableHandler"
 
 
 class CellRegion(braille.TextInfoRegion):
-	# TODO: Handle cursor routing (select/focus/activate)
 	
 	def routeTo(self, braillePos):
 		cell = self.obj
@@ -74,37 +84,94 @@ class CellRegion(braille.TextInfoRegion):
 		if not colNum == table._currentColumnNumber:
 			table._moveToColumn(colNum, cell=cell)
 			return
-		super(CellRegion, self).routeTo(braillePos)
-	
-	def _getSelection(self):
-		info = super(CellRegion, self)._getSelection()
-		cell = self.obj
-		if cell.columnNumber == cell.table._currentColumnNumber:
-			#log.warning("expanding")
-			info.expand(textInfos.UNIT_STORY)
-		#else:
-		#	log.info("not expanding")
-		return info
+		if config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]:
+			if scriptHandler.getLastScriptRepeatCount() < 1:
+				table._reportColumnChange()
+				return
+		info = self.getTextInfoForBraillePos(braillePos)
+		try:
+			info.activate()
+		except NotImplementedError:
+			pass
 
 
 class ColumnSeparatorRegion(braille.Region):
 	
+	brailleCells = None
+	brailleToRawPos = None
+	rawText = None
+	rawToBraillePos = None
+	
+	@classmethod
+	def handleConfigChange(cls):
+		cells = cls.brailleCells = brailleCellsDecimalStringToIntegers(
+			config.conf["tableHandler"]["brailleColumnSeparator"]
+		)
+		cls.rawText = brailleCellsIntegersToUnicode(cells)
+		cls.brailleToRawPos = list(range(len(cells)))
+		cls.rawToBraillePos = list(range(len(cells)))	
+	
 	def __init__(self, obj):
 		super(ColumnSeparatorRegion, self).__init__()
 		self.obj = obj
-		self.rawText = "\u28b8"
+		self.brailleCells = type(self).brailleCells
+		self.brailleToRawPos = type(self).brailleToRawPos
+		self.rawText = type(self).rawText
+		self.rawToBraillePos = type(self).rawToBraillePos
+	
+	def routeTo(self, braillePos):
+		cell = self.obj.cell
+		table = cell.table
+		colNum = cell.columnNumber
+		if not colNum == table._currentColumnNumber:
+			table._moveToColumn(colNum, cell=cell)
+			return
+		if config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]:
+			if scriptHandler.getLastScriptRepeatCount() < 1:
+				table._reportColumnChange()
+				return
+		self.obj.cell.script_modifyColumnWidthBraille(None)
+	
+	def update(self):
+		# Handle by `.config.handleConfigChange_brailleColumnSeparator` 
+		pass
+
+
+class RowRegionBuffer(TabularBrailleBuffer):
+	
+	def __init__(self, rowRegion):
+		self.rowRegion = weakref.proxy(rowRegion)
+		super(RowRegionBuffer, self).__init__()
+	
+	def onRegionUpdatedAfterPadding(self, region):
+		cell = None
+		obj = region.obj
+		if isinstance(obj, Cell):
+			cell = obj
+		else:
+			cell = getattr(obj, "cell", None)
+		if cell.columnNumber == cell.table._currentColumnNumber:
+			#if cell is not self.rowRegion.obj and not isinstance(cell, weakref.ProxyType):
+			#	log.warning(f"{cell!r} is not {self.rowRegion.obj!r}")
+			# Create a new list to preserve the shared list of ColumnSeparatorRegion.
+			region.brailleCells = [cell | braille.SELECTION_SHAPE for cell in region.brailleCells]
+			if getattr(cell, "isResizingColumnWidthBraille", False):
+				cell.resizingCell.effectiveColumnWidthBraille = region.width
+				cell.resizingCell.columnsAfterInBrailleWindow = 0
 
 
 class RowRegion(braille.TextInfoRegion):
-		
+	
+	#updateCount = 0
+	
 	def __init__(self, cell):
 		super(RowRegion, self).__init__(obj=cell)
 		self.hidePreviousRegions = True
-		self.buffer = TabularBrailleBuffer()
+		self.buffer = RowRegionBuffer(self)
 		self.windowNumber = None
 		self.maxWindowNumber = None
-		self.row = cell.row
-		self.table = self.row.table
+		self.row = weakref.proxy(cell.row)
+		self.table = weakref.proxy(self.row.table)
 		#global _region
 		#_region = self
 	
@@ -117,6 +184,7 @@ class RowRegion(braille.TextInfoRegion):
 		#log.info(f"cells: {pformat(cells, indent=2)}")
 		columns = []
 		displaySize = braille.handler.displaySize
+		colSepWidth = len(ColumnSeparatorRegion.brailleCells)
 		winNum = 0
 		winSize = 0
 		for index, cell in enumerate(cells):
@@ -128,11 +196,11 @@ class RowRegion(braille.TextInfoRegion):
 					winNum += 1
 					winSize = 0
 					break
-				elif winSize + width + 1 <= displaySize:
+				elif winSize + width + colSepWidth <= displaySize:
 					# Append this fixed-width cell to the current window.
-					winSize += width + 1
+					winSize += width + colSepWidth
 					columns.append((winNum, width, cell))
-					columns.append((winNum, 1, ColumnSeparator(parent=cell.parent)))
+					columns.append((winNum, colSepWidth, ColumnSeparator(parent=cell.parent, cell=cell)))
 					if winSize == displaySize:
 						# Move on to the next window
 						winNum += 1
@@ -150,8 +218,8 @@ class RowRegion(braille.TextInfoRegion):
 				else:
 					# Not enough room in the current empty window:
 					# Truncate to the display size and move on to the next window.
-					columns.append(winNum, displaySize - 1, cell)
-					columns.append((winNum, 1, ColumnSeparator(parent=cell.parent)))
+					columns.append((winNum, displaySize - colSepWidth, cell))
+					columns.append((winNum, colSepWidth, ColumnSeparator(parent=cell.parent)))
 					winNum += 1
 					winSize = 0
 					break
@@ -192,14 +260,22 @@ class RowRegion(braille.TextInfoRegion):
 		self.buffer.routeTo(braillePos)
 	
 	def update(self):
-		if self.buffer.regions:
-			return
+# 		self.updateCount += 1
+# 		queueHandler.queueFunction(
+# 			queueHandler.eventQueue,
+# 			speech.speakMessage,
+# 			f"update {self.updateCount} at column {self.obj.columnNumber}"
+# 		)
+		#queueHandler.queueFunction(queueHandler.eventQueue, speech.speakMessage, f"update {self.updateCount}")
+		#if self.buffer.regions:
+		#	return
 		buffer = self.buffer
 		buffer.regions = list(self.iterWindowRegions())
 		buffer.update()
 		self.rawText = buffer.windowRawText
 		self.brailleCells = buffer.windowBrailleCells
 		self.cursorPos = buffer.cursorWindowPos
+		
 	
 	def previousLine(self, start=False):
 		# Pan left rather than moving to the previous line.
@@ -233,7 +309,7 @@ class RowRegion(braille.TextInfoRegion):
 
 
 class Cell(ScriptableObject):
-	"""Table Row.
+	"""Table Cell
 	
 	This class can be used as an overlay to an NVDAObject.
 	"""
@@ -254,10 +330,12 @@ class Cell(ScriptableObject):
 			columnNumber = self.columnNumber
 		except Exception:
 			columnNumber = None
-		return "<Cell {}/[{}, {}] {}>".format(tableID, rowNumber, columnNumber, id(self))
+		return "<Cell {}/[{}, {}] {} {!r}>".format(
+			tableID, rowNumber, columnNumber, id(self), getattr(self, "_trackingInfo", [])
+		)
 	
 	def _get_columnWidthBraille(self):
-		return self.table._tableConfig.getColumnWidth(self.rowNumber, self.columnNumber)
+		return self.table._tableConfig.getColumnWidth(self.columnNumber)
 	
 	def _set_columnWidthBraille(self, value):
 		raise NotImplementedError
@@ -328,6 +406,17 @@ class Cell(ScriptableObject):
 			queueHandler.queueFunction(queueHandler.eventQueue, loseFocus_trailer)
 		
 		super(Cell, self).event_loseFocus()
+	
+	def script_modifyColumnWidthBraille(self, gesture):
+		from .fakeObjects.table import ResizingCell
+		ResizingCell(cell=self).setFocus()
+	
+	# Translators: The description of a command.
+	script_modifyColumnWidthBraille.__doc__ = _("Set the width of the current column in braille")
+	
+	__gestures = {
+		"kb:NVDA+control+shift+l": "modifyColumnWidthBraille"
+	}
 
 
 class Row(ScriptableObject):
@@ -444,9 +533,17 @@ class TableManager(ScriptableObject):
 			cell = focus
 			if cell.table is self and cell.rowNumber == self._currentRowNumber:
 				if cell.columnNumber == self._currentColumnNumber:
+					#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> focus {cell!r}")
 					return cell
-				return cell.row._currentCell
-		return self._getCell(self._currentRowNumber, self._currentColumnNumber)
+				#return cell.row._currentCell
+				newCell = cell.row._currentCell
+				#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> row {cell!r} -> {newCell!r}")
+				return newCell
+		#return self._getCell(self._currentRowNumber, self._currentColumnNumber)
+		cell = self._getCell(self._currentRowNumber, self._currentColumnNumber)
+		#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> table._getCell {cell!r}")
+		return cell
+		
 	
 	_cache__currentRow = False
 	
@@ -506,6 +603,10 @@ class TableManager(ScriptableObject):
 	
 	@speechUnmutedFunction
 	def _reportCellChange(self, axis=AXIS_COLUMNS):
+# 		#@@@
+# 		speech.speakMessage("{}, {}".format(self._currentRowNumber, self._currentColumnNumber))
+# 		speech.speakTextInfo(self._currentCell.makeTextInfo(textInfos.POSITION_ALL))
+# 		return
 		curRowNum = self._currentRowNumber
 		curColNum = self._currentColumnNumber
 		curCell = self._currentCell
@@ -543,36 +644,38 @@ class TableManager(ScriptableObject):
 				else:
 					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_HEADER]
 				if headerRowNum is False:
-					# Translator: Announced when moving to a muted header cell
-					content.append(_("Muted {header}").format(header=roleLabel))
+					# Translator: Announced when moving to a disabled header cell
+					content.append(_("Disabled {role}").format(role=roleLabel))
 				elif (
 					isinstance(headerRowNum, int)
 					and headerRowNum != curRowNum
 					and curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
 				):
 					# Translator: Announced when moving to a superseded header cell
-					content.append(_("Original {header}").format(header=roleLabel))
+					content.append(_("Original {role}").format(role=roleLabel))
 				elif axis==AXIS_ROWS or not inRowHeader:
 					content.append(roleLabel)
-			if inRowHeader:
+			if inRowHeader and axis == AXIS_COLUMNS:
 				if inColHeader:
 					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_TABLEROWHEADER]
 				else:
 					roleLabel = controlTypes.roleLabels[controlTypes.ROLE_HEADER]
 				if headerColNum is False:
-					# Translator: Announced when moving to a muted header cell
-					content.append(_("Muted {header}").format(header=roleLabel))
+					# Translator: Announced when moving to a disabled header cell
+					content.append(_("Disabled {role}").format(role=roleLabel))
 				elif (
 					isinstance(headerColNum, int)
 					and headerColNum != curColNum
 					and curCell.role == controlTypes.ROLE_TABLEROWHEADER
 				):
 					# Translator: Announced when moving to a superseded header cell
-					content.append(_("Original {header}").format(header=roleLabel))
-				elif axis == AXIS_COLUMNS or not inColHeader:
+					content.append(_("Original {role}").format(role=roleLabel))
+				else:
 					content.append(roleLabel)
+		# Do not announce the row header of a column header cell,
+		# but do announce the column header of a row header cell
 		if (
-			(axis == AXIS_COLUMNS and headerRowNum is None)
+			(axis == AXIS_COLUMNS and not inColHeader and headerRowNum is None)
 			or (axis == AXIS_ROWS and headerColNum is None)
 		):
 			headerText = None
@@ -584,8 +687,10 @@ class TableManager(ScriptableObject):
 			except NotImplementedError:
 				pass
 			if headerText:
+				headerText = headerText.strip()
+			if headerText:
 				content.append(headerText)
-		elif axis == AXIS_COLUMNS and headerRowNum not in (False, curRowNum):
+		elif axis == AXIS_COLUMNS and not inColHeader and headerRowNum is not False:
 			appendCell(headerRowNum)
 		elif axis == AXIS_ROWS and headerColNum not in (False, curColNum):
 			appendCell(headerColNum)
@@ -594,17 +699,19 @@ class TableManager(ScriptableObject):
 		
 		if inColHeader:
 			marked = self._tableConfig["markedColumnNumbers"]
-			strCurColNum = str(curColNum)  # JSON mappings only support strings as key
-			if strCurColNum in marked:
+			if curColNum in marked:
 				if axis == AXIS_ROWS or curColNum != headerColNum:
 					# Translators: Announced when moving to a marked header cell
 					content.append(_("Column marked"))
 					if axis == AXIS_ROWS:
 						if len(marked) > 1:
 							content.append(translate("{number} out of {total}").format(
-								number=list(sorted(marked)).index(strCurColNum) + 1, total=len(marked)
+								number=list(sorted(marked)).index(curColNum) + 1, total=len(marked)
 							))
-					if marked[strCurColNum]:
+					if curColNum == headerColNum:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("as row header"))
+					elif marked[curColNum]:
 						# Translators: Announced when moving to a marked header cell
 						content.append(_("with announce"))
 					else:
@@ -612,8 +719,7 @@ class TableManager(ScriptableObject):
 						content.append(_("without announce"))
 			elif marked and axis == AXIS_ROWS:
 				count = len(marked)
-				
-				if len(marked) > 1:
+				if count > 1:
 					# Translators: Announced when moving to a header cell
 					content.append(_("{count} columns marked").format(count=len(marked)))
 				elif len(marked) == 1  and not isinstance(headerColNum, int):
@@ -622,17 +728,19 @@ class TableManager(ScriptableObject):
 		if inRowHeader:
 			# TODO: Implement marked rows
 			marked = {headerRowNum: False} if isinstance(headerRowNum, int) else {}
-			strCurRowNum = curRowNum  # JSON mappings only support strings as key
-			if strCurRowNum in marked:
+			if curRowNum in marked:
 				if axis == AXIS_COLUMNS or curRowNum != headerRowNum:
 					# Translators: Announced when moving to a marked header cell
 					content.append(_("Row marked"))
 					if axis == AXIS_COLUMNS:
 						if len(marked) > 1:
 							content.append(translate("{number} out of {total}").format(
-								number=list(marked).index(strCurRowNum) + 1, total=len(marked)
+								number=list(marked).index(curRowNum) + 1, total=len(marked)
 							))
-					if marked[strCurRowNum]:
+					if curRowNum == headerRowNum:
+						# Translators: Announced when moving to a marked header cell
+						content.append(_("as column header"))
+					elif marked[curRowNum]:
 						# Translators: Announced when moving to a marked header cell
 						content.append(_("with announce"))
 					else:
@@ -649,26 +757,32 @@ class TableManager(ScriptableObject):
 			if axis == AXIS_COLUMNS:
 				marked = []  # TODO: Implement marked rows
 			else:
-				strCurColNum = str(curColNum)  # JSON mappings only support strings as key
 				# The following `sorted` leads to announcing in natural columns order
 				# rather than in the order of which the columns were marked.
 				# TODO: Make marked columns announce order configuration?
 				marked = sorted([
-					int(strColNum) for strColNum, announce in self._tableConfig["markedColumnNumbers"].items()
-					if announce and strColNum not in (strCurColNum, headerColNum)
+					colNum for colNum, announce in self._tableConfig["markedColumnNumbers"].items()
+					if announce and colNum not in (curColNum, headerColNum)
 				])
 			for colNum in marked:
 				appendCell(colNum)
 		
-		try:
-			doc = CompoundDocument(self, content)
-		except Exception:
-			log.exception("Error creating CompoundDocument with content={}".format(repr(content)))
-			raise
-		info = doc.makeTextInfo(textInfos.POSITION_ALL)
-		# Store a strong reference to keep the `FakeObject` alive.
-		info.obj = doc
-		speech.speakTextInfo(info)
+		for part in content:
+			if isinstance(part, string_types):
+				speech.speakText(part)
+			elif isinstance(part, NVDAObject):
+				speech.speakTextInfo(part.makeTextInfo(textInfos.POSITION_ALL))
+			else:
+				raise ValueError(part)
+# 		try:
+# 			doc = CompoundDocument(self, content)
+# 		except Exception:
+# 			log.exception("Error creating CompoundDocument with content={}".format(repr(content)))
+# 			raise
+# 		info = doc.makeTextInfo(textInfos.POSITION_ALL)
+# 		# Store a strong reference to keep the `FakeObject` alive.
+# 		info.obj = doc
+# 		speech.speakTextInfo(info)
 
 	def _reportColumnChange(self):
 		self._reportCellChange(axis=AXIS_COLUMNS)
@@ -734,6 +848,19 @@ class TableManager(ScriptableObject):
 		# We do not seem to receive focusEntered events with IE11
 		self._receivedFocusEntered = True
 		self._reportFocusEntered()
+	
+	def script_copyToClipboard(self, gesture):
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("No selection"))
+			return
+		info = cell.makeTextInfo(textInfos.POSITION_ALL)
+		if info.isCollapsed:
+			ui.message(translate("No selection"))
+			return
+		info.copyToClipboard(notify=True)
+	
+	script_copyToClipboard.canPropagate = True
 	
 	def script_moveToFirstDataCell(self, gesture):
 		cell = self._firstDataCell
@@ -811,7 +938,6 @@ class TableManager(ScriptableObject):
 			return
 		curColIsMarked = False
 		for marked in sorted(self._tableConfig["markedColumnNumbers"]):
-			marked = int(marked)  # JSON mappings only support strings as key
 			if marked > columnNumber:
 				self._moveToColumn(marked)
 				return
@@ -837,7 +963,6 @@ class TableManager(ScriptableObject):
 		columnNumber = self._currentColumnNumber
 		curColIsMarked = False
 		for marked in reversed(sorted(self._tableConfig["markedColumnNumbers"])):
-			marked = int(marked)  # JSON mappings only support strings as key
 			if marked < columnNumber:
 				self._moveToColumn(marked)
 				return
@@ -916,7 +1041,7 @@ class TableManager(ScriptableObject):
 			ui.message(_("Column header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
 			self._tableConfig["columnHeaderRowNumber"] = False
-			ui.message(_("Column header muted"))
+			ui.message(_("Column header disabled"))
 		else:
 			self._tableConfig["columnHeaderRowNumber"] = curNum
 			#marked[curNum] = None
@@ -931,7 +1056,7 @@ class TableManager(ScriptableObject):
 		curNum = self._currentColumnNumber
 		cfg = self._tableConfig
 		marked = cfg["markedColumnNumbers"]
-		marked.pop(str(headerNum), None)
+		marked.pop(headerNum, None)
 		if headerNum == curNum:
 			self._tableConfig["rowHeaderColumnNumber"] = None
 			try:
@@ -943,10 +1068,10 @@ class TableManager(ScriptableObject):
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
 			self._tableConfig["rowHeaderColumnNumber"] = False
 			# Translators: Reported when customizing row headers
-			ui.message(_("Row header muted"))
+			ui.message(_("Row header disabled"))
 		else:
 			self._tableConfig["rowHeaderColumnNumber"] = curNum
-			marked[str(curNum)] = None
+			marked[curNum] = None
 			# Translators: Reported when customizing row headers
 			ui.message(_("Column set as row header"))
 		cfg["markedColumnNumbers"] = marked
@@ -975,21 +1100,20 @@ class TableManager(ScriptableObject):
 			return
 		cfg = self._tableConfig
 		marked = cfg["markedColumnNumbers"]
-		strCurColNum = str(curColNum)  # JSON mappings only support strings as key
-		if strCurColNum in marked:
-			announce = marked[strCurColNum]
+		if curColNum in marked:
+			announce = marked[curColNum]
 			if announce:
-				marked[strCurColNum] = False
+				marked[curColNum] = False
 				cfg["markedColumnNumbers"] = marked
 				# Translators: Reported when toggling marked columns
 				ui.message(_("Column {} marked without announce").format(curColNum))
 				return
-			del marked[strCurColNum]
+			del marked[curColNum]
 			cfg["markedColumnNumbers"] = marked
 			# Translators: Reported when toggling marked columns
 			ui.message(_("Column {} unmarked").format(curColNum))
 			return
-		marked[strCurColNum] = True
+		marked[curColNum] = True
 		cfg["markedColumnNumbers"] = marked
 		# Translators: Reported when toggling marked columns
 		ui.message(_("Column {} marked with announce").format(curColNum))
@@ -1015,4 +1139,5 @@ class TableManager(ScriptableObject):
 		"kb:NVDA+shift+r": "setRowHeader",
 		"kb:control+space": "toggleMarkedColumn",
 		"kb:shift+space": "selectRow",
+		"kb:control+c": "copyToClipboard",
 	}

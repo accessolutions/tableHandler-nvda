@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.21"
+__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -36,6 +36,7 @@ import weakref
 
 import addonHandler
 import api
+import braille
 import controlTypes
 from logHandler import log
 import speech
@@ -125,6 +126,63 @@ class FakeCell(Cell, FakeObject):
 		return self.row.rowNumber
 
 
+class ResizingCell(FakeObject):
+	"""Table Cell being resized (braille column width)
+	"""
+	def __init__(self, cell=None):
+		super(ResizingCell, self).__init__(cell=cell)
+		self.isResizingColumnWidthBraille = True
+	
+	def getScript(self, gesture):
+		func = super(ResizingCell, self).getScript(gesture)
+		if func:
+			return func
+		return self.script_done
+	
+	def getBrailleRegions(self, review=False):
+		return self.cell.getBrailleRegion(review=review)
+	
+	def event_gainFocus(self):
+		# Translators: Announced when initiating table column resizing in braille
+		speech.speakMessage(_("Use the left and right arrows to set the desired column width in braille"))
+	
+	def script_done(self, gesture):
+		# Translators: Announced when terminating table column resizing in braille
+		speech.speakMessage(_("End of customizing"))
+		self.cell.setFocus()
+	
+	def script_shrink(self, gesture):
+		cell = self.cell
+		table = cell.table
+		colNum = cell.columnNumber
+		width = table._tableConfig.getColumnWidth(colNum)
+		width = table._tableConfig.setColumnWidth(colNum, width - 1)
+		# Translators: Announced when adjusting the width in braille of a table column
+		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
+		braille.handler.handleUpdate(self.cell)
+	
+	# Translators: The description of a command.
+	script_shrink.__doc__ = _("Decrease the width of the current column in braille")
+	
+	def script_expand(self, gesture):
+		cell = self.cell
+		table = cell.table
+		colNum = cell.columnNumber
+		width = table._tableConfig.getColumnWidth(colNum)
+		width = table._tableConfig.setColumnWidth(colNum, width + 1)
+		# Translators: Announced when adjusting the width in braille of a table column
+		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
+		braille.handler.handleUpdate(self.cell)
+	
+	# Translators: The description of a command.
+	script_expand.__doc__ = _("Increase the width of the current column in braille")
+	
+	__gestures = {
+		"kb:leftArrow": "shrink",
+		"kb:rightArrow": "expand",
+	}
+
+
 class TextInfoDrivenFakeCell(FakeCell):
 	
 	_childAccess = CHILD_ACCESS_ITERATION
@@ -134,7 +192,8 @@ class TextInfoDrivenFakeCell(FakeCell):
 	
 	def __del__(self):
 		self.info = None
-		super(TextInfoDrivenFakeCell, self).__del__()
+		# TODO: Fix delayed garbage collection
+		#super(TextInfoDrivenFakeCell, self).__del__()
 	
 	def _get_field(self):
 		info = self.info
@@ -255,6 +314,11 @@ class TextInfoDrivenFakeRow(FakeRow):
 		super(TextInfoDrivenFakeRow, self).__init__(*args, table=table, rowNumber=rowNumber, **kwargs)
 		self._cache = weakref.WeakKeyDictionary()
 	
+	def __del__(self):
+		self._cache.clear()
+		# TODO: Fix delayed garbage collection
+		#super(TextInfoDrivenFakeRow, self).__del__()
+	
 	def _get_children(self):
 		return [cell for colNum, colSpan, cell in self._iterCells()]
 		
@@ -266,8 +330,12 @@ class TextInfoDrivenFakeRow(FakeRow):
 				iter(self._cache.items()),
 				(None, (None, {}, {}))
 			)
-			if oldCell is not None:
-				if oldColNum <= columnNumber < oldColNum + colSpans[oldColNum]:									
+			if oldCell:
+				if not(oldColNum <= oldCell.columnNumber < oldColNum + colSpans[oldColNum]):
+					# This discrepency is most likely due to an update of the document.
+					self._cache.clear()
+					return self._getCell(columnNumber, refresh=True)
+				if oldColNum <= columnNumber < oldColNum + colSpans[oldColNum]:
 					return oldCell
 				del self._cache[oldCell]
 			newCell = newColNum = None
@@ -275,11 +343,11 @@ class TextInfoDrivenFakeRow(FakeRow):
 				if colNum <= columnNumber < colNum + colSpans[colNum]:
 					newColNum, newCell = colNum, cell
 					break
-			if newCell is not None:
+			if newCell:
 				del cache[newColNum]
 				# The previously returned cell was not in the cache
 				cache[oldColNum] = oldCell
-		if refresh or newCell is None:
+		if refresh or not newCell:
 			cache = {}
 			colSpans = {}
 			index = []
@@ -292,10 +360,8 @@ class TextInfoDrivenFakeRow(FakeRow):
 					# Only cache the cells that are not returned
 					cache[colNum] = cell
 				colSpans[colNum] = colSpan
-			#from pprint import pformat
-			#log.info(f"cells: {pformat(index, indent=4)}", stack_info=True)
 				
-		if newCell is not None:
+		if newCell:
 			# Keep the cache as long as the returned cell is alive
 			self._cache[newCell] = (newColNum, colSpans, cache)
 		return newCell
@@ -310,6 +376,7 @@ class TextInfoDrivenFakeRow(FakeRow):
 				for colNum in colSpans:
 					cell = oldCell if colNum == oldColNum else cache[colNum]
 					yield colNum, colSpans[colNum], cell
+				#log.info("cells iterated from cache")
 				return
 		infos = self.table._iterCellsTextInfos(self.rowNumber)
 		while True:
@@ -337,7 +404,12 @@ class FakeTableManager(TableManager, FakeObject):
 	
 	def __init__(self, *args, **kwargs):
 		super(FakeTableManager, self).__init__(*args, **kwargs)
-		self._rows = {}
+		self._rows = weakref.WeakValueDictionary()
+	
+	def __del__(self):
+		self._rows.clear()
+		# TODO: Fix delayed garbage collection
+		#super(FakeTableManager, self).__del__()
 	
 	_cache_firstChild = False
 	
@@ -354,14 +426,16 @@ class FakeTableManager(TableManager, FakeObject):
 		return self.RowClass(table=self, *args, **kwargs)
 	
 	def _getRow(self, rowNumber):
-		weakRow = self._rows.get(rowNumber)
-		row = weakRow() if weakRow is not None else None
-		if row is None and self._canCreateRow(rowNumber):
+		row = self._rows.get(rowNumber)
+		if row and not(rowNumber <= row.rowNumber < rowNumber + getRowSpanSafe(row)):
+			# This discrepency is most likely due to an update of the document.
+			row = None
+		if not row and self._canCreateRow(rowNumber):
 			row = self._createRow(rowNumber=rowNumber)
-			if row is not None:
-				self._rows[rowNumber] = weakref.ref(row)
+			if row:
+				self._rows[rowNumber] = row
 		# The current column number might be None eg. in a table caption
-		if row is None or not (row._currentCell or self._currentColumnNumber is None):
+		if not row or not (row._currentCell or self._currentColumnNumber is None):
 			self._rows.pop(rowNumber, None)
 			return None
 		return row

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.20"
+__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -60,7 +60,6 @@ class FakeObject(NVDAObject):
 
 	_childAccess = CHILD_ACCESS_GETTER
 	
-	#def __init__(self, parent=None, **kwargs):
 	def __init__(self, **kwargs):
 		super(FakeObject, self).__init__()
 		if "children" in kwargs:
@@ -69,21 +68,11 @@ class FakeObject(NVDAObject):
 			self._childAccess = CHILD_ACCESS_ITERATION
 		for key, value in kwargs.items():
 			setattr(self, key, value)
-# 		if parent is not None:
-# 			self.parent = parent
-# 		else:
-# 			parent = self.parent  # Retrieve from eventually overloaded property.
-# 		self.appModule = parent.appModule
-# 		self.processID = parent.processID
-# 		try:
-# 			# HACK: Some NVDA code depends on window properties, even for non-Window objects.
-# 			self.windowHandle = parent.windowHandle
-# 			self.windowClassName = parent.windowClassName
-# 			self.windowControlID = parent.windowControlID
-# 			self.windowThreadID = parent.windowThreadID
-# 		except AttributeError:
-# 			pass
-		
+	
+	def __del__(self):
+		# TODO: Fix delayed garbage collection
+		pass
+	
 	def _get_TextInfo(self):
 		superCls = super(FakeObject, self).TextInfo
 		if not issubclass(
@@ -126,16 +115,7 @@ class FakeObject(NVDAObject):
 	
 	def _set_appModule(self, value):
 		raise Exception("Just checking")
-	
-# 	def _get_event_windowHandle(self):
-# 		return self.parent.windowHandle
-# 	
-# 	def _get_event_objectID(self):
-# 		return self.parent.event_objectID
-# 	
-# 	def _get_event_childID(self):
-# 		return self.parent.event_childID
-	
+		
 	_cache_firstChild = False
 	
 	def _get_firstChild(self):
@@ -164,11 +144,25 @@ class FakeObject(NVDAObject):
 		else:
 			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
 	
-# 	def _get_parent(self):
-# 		return self._parent
-# 	
-# 	def _set_parent(self, value):
-# 		self._parent = value
+	_cache_parent = False
+	
+	def _get_parent(self):
+		parent = None
+		focus = api.getFocusObject()
+		if self is focus:
+			parent = next(reversed(api.getFocusAncestors()))
+		else:
+			from itertools import chain
+			for obj in chain((focus,), reversed(api.getFocusAncestors())):
+				if isinstance(obj, FakeObject):
+					continue
+				parent = obj
+				break
+		if parent is None:
+			# Should be a warning, but let's make it "ding" for now…
+			log.error("Could not determine a suitable parent within the focus ancestry.")
+		
+		return parent
 	
 	def _get_processID(self):
 		return self.parent.processID
@@ -214,33 +208,7 @@ class FakeObject(NVDAObject):
 	
 	def _isEqual(self, obj):
 		return self is obj
-	
-# 	def event_loseFocus(self):
-# 		log.info(f"{self!r}.event_loseFocus", stack_info=True)
-# 		import globalVars
-# 		obj = globalVars.focusObject
-# 		if obj is self:
-# 			while isinstance(obj, FakeObject):
-# 				obj = globalVars.focusAncestors.pop()
-# 				log.info(f"Step up to {_getObjLogInfo(obj)}")
-# 				globalVars.focusObject = obj
 
-# 				parent = globalVars.focusObject.parent
-# 				if parent is None:
-# 					if globalVars.focusObject is self:
-# 						log.error("Parentless focus object: {!r}".format(globalVars.focusObject))
-# 					else:
-# 						log.error("Parentless focus ancestor: {!r}".format(globalVars.focusObject))
-# 					break
-# 				if parent != globalVars.focusAncestors[-1]:
-# 					log.error("Parent missing from focus ancestors: {!r}".format(parent))
-# 					break
-# 				#log.info(f"Step up to {parent!r}(ti={parent.treeInterceptor!r}")
-# 				log.info(f"Step up to {_getObjLogInfo(parent)}")
-# 				globalVars.focusObject = parent
-# 				del globalVars.focusAncestors[-1]
-# 		super(FakeObject, self).event_loseFocus()
-		
 
 class FakeFlowingObject(FakeObject):
 	"""A `FakeObject` that flows with its siblings.
@@ -302,53 +270,53 @@ class FakeFlowingObject(FakeObject):
 		return self.parent.getChild(self.indexInParent - 1)
 
 
-class BaseProxy(FakeObject):
-	"""Base class for objects that selectively proxy attribute access to another object.
-	
-	This implementation only takes care on maintaining the proxied object reference.
-	"""
-	
-	def __init__(self, obj, *args, objPreFinalizeCallback=None, **kwargs):
-		if isinstance(obj, IAccessible.IAccessible):
-			self._obj = lambda args=(
-				obj.event_windowHandle,
-				obj.event_objectID,
-				obj.event_childID
-			): IAccessible.getNVDAObjectFromEvent(*args)
-		elif isinstance(obj, weakref.ReferenceType):
-			self._obj = obj
-		else:
-			self._obj = weakref.ref(obj, objPreFinalizeCallback)
-		super(BaseProxy, self).__init__(*args, **kwargs)
-	
-	_cache_obj = False
-	
-	def _get_obj(self):
-		return self._obj()
+# class BaseProxy(FakeObject):
+# 	"""Base class for objects that selectively proxy attribute access to another object.
+# 	
+# 	This implementation only takes care on maintaining the proxied object reference.
+# 	"""
+# 	
+# 	def __init__(self, obj, *args, objPreFinalizeCallback=None, **kwargs):
+# 		if isinstance(obj, IAccessible.IAccessible):
+# 			self._obj = lambda args=(
+# 				obj.event_windowHandle,
+# 				obj.event_objectID,
+# 				obj.event_childID
+# 			): IAccessible.getNVDAObjectFromEvent(*args)
+# 		elif isinstance(obj, weakref.ReferenceType):
+# 			self._obj = obj
+# 		else:
+# 			self._obj = weakref.ref(obj, objPreFinalizeCallback)
+# 		super(BaseProxy, self).__init__(*args, **kwargs)
+# 	
+# 	_cache_obj = False
+# 	
+# 	def _get_obj(self):
+# 		return self._obj()
 
 
-class ProxyContent(FakeFlowingObject, BaseProxy):
-	
-	def _get_TextInfo(self):
-		return self.obj.TextInfo
-	
-	def _get_basicText(self):
-		return self.obj.basicText
-	
-	def _get_role(self):
-		return self.obj.role
-	
-	def _get_roleText(self):
-		return self.obj.roleText
-	
-	def _get_roleTextBraille(self):
-		return self.obj.roleTextBraille
-	
-	def _get_states(self):
-		return self.obj.states
-	
-	def _get_value(self):
-		return self.obj.value
-	
-	def makeTextInfo(self, *args, **kwargs):
-		return self.obj.makeTextInfo(*args, **kwargs)
+# class ProxyContent(FakeFlowingObject, BaseProxy):
+# 	
+# 	def _get_TextInfo(self):
+# 		return self.obj.TextInfo
+# 	
+# 	def _get_basicText(self):
+# 		return self.obj.basicText
+# 	
+# 	def _get_role(self):
+# 		return self.obj.role
+# 	
+# 	def _get_roleText(self):
+# 		return self.obj.roleText
+# 	
+# 	def _get_roleTextBraille(self):
+# 		return self.obj.roleTextBraille
+# 	
+# 	def _get_states(self):
+# 		return self.obj.states
+# 	
+# 	def _get_value(self):
+# 		return self.obj.value
+# 	
+# 	def makeTextInfo(self, *args, **kwargs):
+# 		return self.obj.makeTextInfo(*args, **kwargs)

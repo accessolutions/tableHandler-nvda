@@ -33,12 +33,16 @@ from functools import WRAPPER_ASSIGNMENTS, WRAPPER_UPDATES, update_wrapper
 from itertools import chain
 import time
 
+import addonHandler
 import inputCore
 from keyboardHandler import KeyboardInputGesture
 from logHandler import log
 import scriptHandler
 
 from .coreUtils import translate 
+
+
+addonHandler.initTranslation()
 
 
 class ScriptWrapper(object):

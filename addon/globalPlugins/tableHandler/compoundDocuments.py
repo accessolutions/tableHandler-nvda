@@ -25,11 +25,10 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.11.03"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
-import six
 import weakref
 
 from NVDAObjects import IAccessible, NVDAObject
@@ -40,6 +39,13 @@ import config
 import controlTypes
 from logHandler import log
 import textInfos
+
+try:
+	from six import string_types
+except ImportError:
+	# NVDA version < 2018.3
+	string_types = (str, unicode)
+
 
 from .fakeObjects import FakeFlowingObject, FakeObject
 
@@ -152,7 +158,7 @@ class CompoundDocument(compoundDocuments.CompoundDocument):
 			parent = weakref.proxy(parent)
 		root = FakeObject(parent=parent, children=children)
 		for item in content:
-			if isinstance(item, six.string_types):
+			if isinstance(item, string_types):
 				item = FakeFlowingObject(parent=weakref.proxy(root), basicText=item)
 			elif isinstance(item, FakeObject):
 				pass
@@ -164,7 +170,7 @@ class CompoundDocument(compoundDocuments.CompoundDocument):
 		if children:
 			if isinstance(children[0], FakeFlowingObject):
 				children[0]._startsFlow = True
-			if isinstance(children[0], FakeFlowingObject):
+			if isinstance(children[-1], FakeFlowingObject):
 				children[-1]._endsFlow = True
 			for index, child in enumerate(children):
 				if isinstance(child, FakeFlowingObject):

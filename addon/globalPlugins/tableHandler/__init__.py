@@ -25,16 +25,18 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.21"
+__version__ = "2021.11.03"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 from functools import partial
 import os.path
+import threading
 import weakref
 
 import addonHandler
 import api
+import braille
 import controlTypes
 import errno
 import globalPluginHandler
@@ -67,11 +69,18 @@ SCRIPT_CATEGORY = "TableHandler"
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	
+	def __init__(self):
+		super(GlobalPlugin, self).__init__()
+		initialize()
+	
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):  # TODO
 		role = obj.role
 		if role == controlTypes.ROLE_DOCUMENT:
 			from .documents import TableHandlerDocument
 			clsList.insert(0, TableHandlerDocument)
+	
+	def terminate(self):
+		terminate()
 	
 	def script_toggleTableMode(self, gesture):
 		from .documents import TABLE_MODE, DocumentFakeCell, reportPassThrough
@@ -102,6 +111,31 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	__gestures = {
 		"kb:nvda+control+shift+space": "toggleTableMode"
 	}
+
+
+def initialize():
+	from .config import initialize as config_initialize
+	config_initialize()
+	from .gui.settings import initialize as settings_initialize
+	settings_initialize()
+	
+	def loadCatalog():
+		TableConfig.catalog
+	
+	thread = TableConfig._catalogLoadingThread = threading.Thread(target=loadCatalog)
+	thread.daemon = True
+	thread.start()
+
+
+def terminate():
+	from .config import initialize as config_terminate
+	config_terminate()
+	from .gui.settings import terminate as settings_terminate
+	settings_terminate()
+	
+	TableConfig._cache.clear()
+	TableConfig._catalog = None
+
 
 
 def getTableConfig(**kwargs):
@@ -194,8 +228,8 @@ class TableHandlerDispatcher(TrackedObject):
 class TableConfig(object):
 	
 	DEFAULTS = {
-		"defaultColumnWidth" : 10,
-		"columnWidths" : {},
+		"defaultColumnWidthByDisplaySize": {0: 10},
+		"columnWidthsByDisplaySize" : {},
 		"columnHeaderRowNumber": None,
 		"rowHeaderColumnNumber": None,
 		"markedColumnNumbers": {}
@@ -203,16 +237,51 @@ class TableConfig(object):
 	
 	FILE_PATH = os.path.join(globalVars.appArgs.configPath, "tableHandler.json")
 	
+	_cache = weakref.WeakValueDictionary()
 	_catalog = None
+	_catalogLoadingThread = None
 	
 	@classmethod
 	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
 	def catalog(cls):
+		cls._catalogLoadingThread.join()
 		catalog = cls._catalog
 		if catalog is not None:
 			return catalog
 		catalog = cls._catalog = [item["key"] for item in cls.read() or []]
 		return catalog
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def get(cls, key, defaults=None):
+		if key not in cls.catalog():
+			raise LookupError(key)
+		strKey = str(key)
+		cfg = cls._cache.get(strKey)
+		if cfg and cfg.key == key:
+			return cfg
+		cfg = cls._cache[strKey] = cls.load(key, defaults=defaults)
+		return cfg
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def load(cls, key, defaults=None):
+		for item in cls.read() or []:
+			if item["key"] == key:
+				if defaults is None:
+					defaults = cls.DEFAULTS
+				return cls(key=key, data=item["config"], defaults=defaults)
+		raise LookupError(key)
+	
+	@classmethod
+	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
+	def read(cls):
+		try:
+			with open(cls.FILE_PATH, "r") as f:
+				return json.load(f)
+		except EnvironmentError as e:
+			if e.errno != errno.ENOENT:
+				raise
 	
 	@classmethod
 	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
@@ -228,24 +297,6 @@ class TableConfig(object):
 		with open(self.FILE_PATH, "w") as f:
 			json.dump(configs, f, indent=4)
 	
-	@classmethod
-	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
-	def load(cls, key):
-		for item in cls.read() or []:
-			if item["key"] == key:
-				return cls(key=key, data=item["config"])
-		raise LookupError(key)
-	
-	@classmethod
-	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
-	def read(cls):
-		try:
-			with open(cls.FILE_PATH, "r") as f:
-				return json.load(f)
-		except EnvironmentError as e:
-			if e.errno != errno.ENOENT:
-				raise
-	
 	def __init__(
 		self,
 		key,
@@ -255,12 +306,23 @@ class TableConfig(object):
 		self.key = key
 		if data is not None:
 			self.data = data
+			# JSON only supports strings for mappings keys
+			intKeyedDict = lambda map: {int(key): value for key, value in map.items()}
+			for key in ("defaultColumnWidthByDisplaySize", "markedColumnNumbers"):
+				if key in data:
+					data[key] = {int(key): value for key, value in data[key].items()}
+			if "columnWidthsByDisplaySize" in data:
+				data["columnWidthsByDisplaySize"] = {int(size): {
+					int(colNum): width for colNum, width in widths.items()
+				} for size, widths in data["columnWidthsByDisplaySize"].items()}
 		else:
 			data = self.data = {}
 		if defaults is not None:
 			self.defaults = defaults
 		else:
 			self.defaults = self.DEFAULTS
+		
+		self.defaultColumnWidthByDisplaySize = self["defaultColumnWidthByDisplaySize"].copy()
 	
 	def __contains__(self, item):
 		return item in self.data or item in self.defaults
@@ -285,29 +347,44 @@ class TableConfig(object):
 		self.data[name] = value
 		self.save()
 	
-	def getColumnWidth(self, rowNumber, columnNumber):
-		columnWidths = self["columnWidths"]
-		try:
-			if isinstance(columnWidths, (list, tuple)):
-				return columnWidths[columnNumber - 1]
-			elif isinstance(columnWidths, dict):
-				return columnWidths[columnNumber]
-			elif columnWidths:
-				raise ValueError("Unexpected columnWidths={!r}".format(columnWidths))
-		except LookupError:
-			pass
-		return self["defaultColumnWidth"]
+	def getColumnWidth(self, columnNumber):
+		size = braille.handler.displaySize
+		columnWidth = self["columnWidthsByDisplaySize"].get(size, {}).get(columnNumber)
+		if columnWidth is not None:
+			return columnWidth
+		defaultSizes = self.defaultColumnWidthByDisplaySize
+		defaultWidth = defaultSizes.get(size)
+		if defaultWidth is not None:
+			return defaultWidth
+		# First encounter of this display size:
+		# Initialize the cache for faster retrieval next time.
+		defaultSizes[size] = defaultWidth = min((
+			(abs(size - candidateSize), candidateWidth)
+			for candidateSize, candidateWidth in defaultSizes.items()
+		), key=lambda item: item[0])[1]
+		return defaultWidth
+	
+	def setColumnWidth(self, columnNumber, width):
+		if width < 0:
+			return
+		size = braille.handler.displaySize
+		width = min(width, size)
+		sizes = self["columnWidthsByDisplaySize"]
+		sizes.setdefault(size, {})[columnNumber] = width
+		self["columnWidthsByDisplaySize"] = sizes
+		return width
 	
 	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
 	def save(self):
 		configs = self.read() or []
+		data = self.data.copy()
 		key = self.key
 		for item in configs:
 			if item["key"] == key:
-				item["config"] = self.data
+				item["config"] = data
 				break
 		else:
-			configs.append({"key": key, "config": self.data})
+			configs.append({"key": key, "config": data})
 			if self._catalog is not None:
 				self._catalog.append(key)
 		with open(self.FILE_PATH, "w") as f:
@@ -321,7 +398,7 @@ class TableHandler(object):
 	
 	def getTableConfig(self, tableConfigKey="default", **kwargs):
 		try:
-			return TableConfig.load(tableConfigKey)
+			return TableConfig.get(tableConfigKey)
 		except LookupError:
 			return TableConfig(tableConfigKey)
 	

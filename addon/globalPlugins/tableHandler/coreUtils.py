@@ -25,45 +25,17 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.20"
+__version__ = "2021.11.03"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
-import time
-
 from NVDAObjects import DynamicNVDAObjectType
-import api
 from logHandler import log
 
 
 class Break(Exception):
 	"""Block-level break.
 	"""
-
-
-def getObjLogInfo(obj):
-	from pprint import pformat
-	import globalVars
-	info = {
-		"obj": repr(obj),
-		"role": obj.role,
-		"isFocus": globalVars.focusObject is obj,
-		"(windowHandle, objectID, childID)": (
-			getattr(obj, "event_windowHandle", None),
-			getattr(obj, "event_objectID", None),
-			getattr(obj, "event_childID", None)
-		)
-	}
-	ti = obj.treeInterceptor
-	if obj.treeInterceptor:
-		info["treeInterceptor"] = {
-			"passThrough" : ti.passThrough,
-			"isReady" : ti.isReady,
-			"_hadFirstGainFocus" : ti._hadFirstGainFocus
-		}
-	else:
-		info["treeInterceptor"] = repr(ti)
-	return pformat(info, indent=4)
 
 
 def catchAll(logger, *loggerArgs, **loggerKwargs):
@@ -74,7 +46,7 @@ def catchAll(logger, *loggerArgs, **loggerKwargs):
 			try:
 				return func(*args, **kwargs)
 			except Exception:
-				log.exception(
+				logger.exception(
 					"args={}, kwargs={}".format(repr(args), repr(kwargs)),
 					*loggerArgs,
 					**loggerKwargs

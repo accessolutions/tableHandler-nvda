@@ -25,9 +25,11 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.09"
+__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
+import sys
 
 import braille
 from logHandler import log
@@ -35,8 +37,14 @@ from logHandler import log
 
 class TabularBrailleBuffer(braille.BrailleBuffer):
 	
-	def __init__(self):
+	def __init__(self, ):
 		super(TabularBrailleBuffer, self).__init__(handler=braille.handler)
+	
+	def onRegionUpdatedBeforePadding(self, region):
+		pass
+	
+	def onRegionUpdatedAfterPadding(self, region):
+		pass
 	
 	def update(self):
 		self.rawText = ""
@@ -45,6 +53,7 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 		start = 0
 		for region in self.visibleRegions:
 			region.update()
+			self.onRegionUpdatedBeforePadding(region)
 			cells = region.brailleCells
 			width = region.width
 #			log.info(f"@@@ >>> rawText={region.rawText}, width={width}, len={len(region.rawText)}/{len(region.brailleCells)}")
@@ -58,11 +67,63 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 				while len(cells) < width:
 					region.brailleToRawPos.append(len(region.rawText))
 					region.rawToBraillePos.append(len(cells))
-					cells.append(0)
 					region.rawText += " "
+					cells.append(0)
 #			log.info(f"@@@ <<< rawText={region.rawText}, width={width}, len={len(region.rawText)}/{len(region.brailleCells)}")
+			self.onRegionUpdatedAfterPadding(region)
 			self.rawText += region.rawText
-			self.brailleCells.extend(cells)
+			self.brailleCells.extend(region.brailleCells)
 			if region.brailleCursorPos is not None:
 				self.cursorPos = start + region.brailleCursorPos
 			start += len(cells)
+
+
+def brailleCellDecimalStringToInteger(dec):
+	res = 0
+	if dec == "0":
+		return 0
+	for c in dec:
+		if c not in "12345678":
+			raise ValueError(dec)
+		p = 1 << (int(c) - 1)
+		if res & p:
+			raise ValueError(dec)
+		res |= p
+	return res
+
+
+def brailleCellsDecimalStringToIntegers(decs):
+	res = []
+	l = decs.split("-")
+	for index, dec in enumerate(l):
+		try:
+			res.append(brailleCellDecimalStringToInteger(dec))
+		except ValueError as e:
+			if sys.version_info[0] == 3:
+				raise ValueError(decs) from e
+			else:
+				raise ValueError(decs)
+	return res
+
+
+def brailleCellsDecimalStringToUnicode(decs):
+	return brailleCellsIntegersToUnicode(brailleCellsDecimalStringToIntegers(decs))
+
+
+def brailleCellIntegerToUnicode(value):
+	if not(0 <= value <= 255):
+		raise ValueError(value)
+	return chr(0x2800 + value)
+
+
+def brailleCellsIntegersToUnicode(ints):
+	parts = []
+	for value in ints:
+		try:
+			parts.insert(0, brailleCellIntegerToUnicode(value))
+		except ValueError as e:
+			if sys.version_info[0] == 3:
+				raise ValueError(decs) from e
+			else:
+				raise ValueError(decs)
+	return "".join(parts)

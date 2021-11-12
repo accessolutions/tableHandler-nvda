@@ -26,7 +26,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.07"
+__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -52,6 +52,11 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 		self.proxied = proxied
 		self.containerCriteria = containerCriteria
 		super(WindowedProxyTextInfo, self).__init__(obj, position)
+		if position == textInfos.POSITION_ALL:
+			self._startOffset = 0
+			self._endOffset = self._convertFromProxiedOffset(proxied._endOffset)
+		else:
+			self._startOffset = self._endOffset = 0
 	
 	def activate(self):
 		info = self.proxied.copy()

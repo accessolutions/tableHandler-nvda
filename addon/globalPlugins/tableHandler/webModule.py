@@ -98,19 +98,22 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 			if templateCfg:
 				data = templateCfg.data
 				defaults = templateCfg.defaults
+		ruleDefaults = None
 		if wmKeyPart:
 			name = wmKeyPart.get("name")
 			if not name or name == self.name:
 				rule = wmKeyPart.get("rule")
 				if rule:
-					defaults = self.tableConfigs.get(rule)
+					ruleDefaults = self.tableConfigs.get(rule)
+					if defaults is not None:
+						defaults.update(ruleDefaults)
 		if (
 			(not tableCfg and (data is not None or defaults is not None))
 			or (tableCfg and tableCfg.key != tableConfigKey)
 		):
 			tableCfg = TableConfig(tableConfigKey, data=data, defaults=defaults)
-		elif tableCfg and defaults is not None:
-			tableCfg.defaults = defaults
+		elif tableCfg and ruleDefaults is not None:
+			tableCfg.defaults.update(ruleDefaults)
 		return tableCfg
 	
 	def getTableConfigKey(self, nextHandler=None, **kwargs):
