@@ -63,7 +63,7 @@ from .fakeObjects.table import (
 	TextInfoDrivenFakeCell,
 	TextInfoDrivenFakeRow
 )
-from .scriptUtils import ScriptWrapper
+from .scriptUtils import ScriptWrapper, overrides
 from .textInfoUtils import getField
 
 
@@ -718,13 +718,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			cache[getEventId(obj)] = obj._speakObjectPropertiesCache
 			log.info(f"cached {getEventId(obj)!r} -> {obj._speakObjectPropertiesCache}")
 	
+# 	@overrides(BrowseModeDocumentTreeInterceptor.script_activatePosition)
 # 	def script_activatePosition(self, gesture):
 # 		log.info(f"script_activatePosition - sel={self.selection._startOffset} - passThrough={self.passThrough}")
 # 		super(TableHandlerTreeInterceptor, self).script_activatePosition(gesture)
-# 	
-# 	script_activatePosition.__dict__.update(
-# 		BrowseModeDocumentTreeInterceptor.script_activatePosition.__dict__
-# 	)
 	
 	def event_stateChange(self, obj, nextHandler):
 		getEventId = lambda obj: (obj.event_windowHandle, obj.event_objectID, obj.event_childID)
@@ -761,6 +758,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		else:
 			nextHandler()
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_nextColumn)
 	def script_nextColumn(self, gesture):
 # 		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
@@ -768,11 +766,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_nextColumn(gesture)
 	
-	script_nextColumn.__dict__.update(
-		BrowseModeDocumentTreeInterceptor.script_nextColumn.__dict__
-	)
 	script_nextColumn.disableTableModeBefore = False
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_previousColumn)
 	def script_previousColumn(self, gesture):
 # 		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
@@ -780,11 +776,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_previousColumn(gesture)
 	
-	script_previousColumn.__dict__.update(
-		BrowseModeDocumentTreeInterceptor.script_previousColumn.__dict__
-	)
 	script_previousColumn.disableTableModeBefore = False
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_disablePassThrough)
 	def script_disablePassThrough(self, gesture):
 		if self.passThrough == FOCUS_MODE_FROM_TABLE_MODE:
 			self.passThrough = TABLE_MODE
@@ -792,10 +786,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_disablePassThrough(gesture)
 	
-	script_disablePassThrough.__dict__.update(
-		BrowseModeDocumentTreeInterceptor.script_disablePassThrough.__dict__
-	)
-	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_nextRow)
 	def script_nextRow(self, gesture):
 # 		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
@@ -803,11 +794,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_nextRow(gesture)
 	
-	script_nextRow.__dict__.update(
-		BrowseModeDocumentTreeInterceptor.script_nextRow.__dict__
-	)
 	script_nextRow.disableTableModeBefore = False
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_previousRow)
 	def script_previousRow(self, gesture):
 # 		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
@@ -815,11 +804,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_previousRow(gesture)
 	
-	script_previousRow.__dict__.update(
-		BrowseModeDocumentTreeInterceptor.script_previousRow.__dict__
-	)
 	script_previousRow.disableTableModeBefore = False
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_nextTable)
 	def script_nextTable(self, gesture):
 		if self.passThrough is False and self._currentTable:
 			self.passThrough = TABLE_MODE
@@ -841,9 +828,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		
 		queueHandler.queueFunction(queueHandler.eventQueue, nextTable_trailer)
 	
-	script_nextTable.__dict__.update(BrowseModeDocumentTreeInterceptor.script_nextTable.__dict__)
 	script_nextTable.disableTableModeBefore = False
 	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_previousTable)
 	def script_previousTable(self, gesture):
 		bookmark = self.selection.bookmark
 		with speechMuted(retains=True) as ctx:
@@ -861,7 +848,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		
 		queueHandler.queueFunction(queueHandler.eventQueue, previousTable_trailer)
 	
-	script_previousTable.__dict__.update(BrowseModeDocumentTreeInterceptor.script_previousTable.__dict__)
 	script_previousTable.disableTableModeBefore = False
 
 
@@ -910,12 +896,10 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 		table._currentColumnNumber = self.columnNumber
 		super(DocumentFakeCell, self).event_gainFocus()
 	
+	
+	@overrides(TextInfoDrivenFakeCell.script_modifyColumnWidthBraille)
 	def script_modifyColumnWidthBraille(self, gesture):
 		DocumentResizingCell(cell=self).setFocus()
-	
-	script_modifyColumnWidthBraille.__dict__.update(
-		TextInfoDrivenFakeCell.script_modifyColumnWidthBraille.__dict__
-	)
 
 
 class DocumentResizingCell(ResizingCell, DocumentFakeObject):

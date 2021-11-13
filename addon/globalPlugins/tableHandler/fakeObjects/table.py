@@ -37,6 +37,7 @@ import weakref
 import addonHandler
 import api
 import braille
+import config
 import controlTypes
 from logHandler import log
 import speech
@@ -149,7 +150,37 @@ class ResizingCell(FakeObject):
 		func = super(ResizingCell, self).getScript(gesture)
 		if func:
 			return func
+		if (
+			config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]
+			and isinstance(gesture, braille.BrailleDisplayGesture)
+			and gesture.id == "routing"
+		):
+			return None
 		return self.script_done
+	
+	def setColumnWidthBraille(self, width):
+		cell = self.cell
+		table = cell.table
+		oldColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
+		width = table._tableConfig.setColumnWidth(cell.columnNumber, width)
+		braille.handler.handleUpdate(self)
+		# Translators: Announced when adjusting the width in braille of a table column
+		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
+		if getattr(cell, "effectiveColumnWidthBraille", 0) > width:
+			speech.speakMessage(_("extended to {count}").format(count=cell.effectiveColumnWidthBraille))
+		newColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
+		if oldColsAfter != newColsAfter:
+			if newColsAfter:
+				if newColsAfter == 1:
+					# Translators: Announced when adjusting the width in braille of a table column
+					msg = _("1 next column on the right")
+				else:
+					# Translators: Announced when adjusting the width in braille of a table column
+					msg = _("{count} next columns on the right")
+				speech.speakMessage(msg.format(count=newColsAfter))
+			else:
+				# Translators: Announced when adjusting the width in braille of a table column
+				speech.speakMessage(_("The next column does not fit in this braille window"))
 	
 	def reportFocus(self):
 		# Translators: Announced when initiating table column resizing in braille
@@ -162,60 +193,18 @@ class ResizingCell(FakeObject):
 	
 	def script_expand(self, gesture):
 		cell = self.cell
-		table = cell.table
 		oldColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
-		colNum = cell.columnNumber
-		width = table._tableConfig.getColumnWidth(colNum)
-		width = table._tableConfig.setColumnWidth(colNum, width + 1)
-		braille.handler.handleUpdate(self)
-		# Translators: Announced when adjusting the width in braille of a table column
-		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
-		if getattr(cell, "effectiveColumnWidthBraille", 0) > width:
-			speech.speakMessage(_("extended to {count}").format(count=cell.effectiveColumnWidthBraille))
-		newColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
-		if oldColsAfter != newColsAfter:
-			if newColsAfter:
-				if newColsAfter == 1:
-					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("1 next column on the right")
-				else:
-					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("{count} next columns on the right")
-				speech.speakMessage(msg.format(count=newColsAfter))
-			else:
-				# Translators: Announced when adjusting the width in braille of a table column
-				speech.speakMessage(_("The next column does not fit in this braille window"))
+		width = cell.table._tableConfig.getColumnWidth(cell.columnNumber)
+		self.setColumnWidthBraille(width + 1)
 	
 	# Translators: The description of a command.
 	script_expand.__doc__ = _("Increase the width of the current column in braille")
 	
 	def script_shrink(self, gesture):
 		cell = self.cell
-		table = cell.table
 		oldColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
-		colNum = cell.columnNumber
-		width = table._tableConfig.getColumnWidth(colNum)
-		width = table._tableConfig.setColumnWidth(colNum, width - 1)
-		braille.handler.handleUpdate(self)
-		# Translators: Announced when adjusting the width in braille of a table column
-		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
-# 		speech.speakMessage(f"effective width {getattr(cell, 'effectiveColumnWidthBraille', None)}")
-# 		speech.speakMessage(f"nb cols right: {getattr(cell, 'columnsAfterInBrailleWindow', None)}")
-		if getattr(cell, "effectiveColumnWidthBraille", 0) > width:
-			speech.speakMessage(_("extended to {count}").format(count=cell.effectiveColumnWidthBraille))
-		newColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
-		if oldColsAfter != newColsAfter:
-			if newColsAfter:
-				if newColsAfter == 1:
-					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("1 next column on the right")
-				else:
-					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("{count} next columns on the right")
-				speech.speakMessage(msg.format(count=newColsAfter))
-			else:
-				# Translators: Announced when adjusting the width in braille of a table column
-				speech.speakMessage(_("The next column does not fit in this braille window"))
+		width = cell.table._tableConfig.getColumnWidth(cell.columnNumber)
+		self.setColumnWidthBraille(width - 1)
 	
 	# Translators: The description of a command.
 	script_shrink.__doc__ = _("Decrease the width of the current column in braille")

@@ -22,7 +22,7 @@
 # Stay compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.11.12"
 __author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 
 
@@ -35,6 +35,8 @@ from .nvdaVersion import nvdaVersion
 CONFIG_SPEC = {
 	"brailleRoutingDoubleClickToActivate": "boolean(default=False)",
 	"brailleColumnSeparator": "string(default='4568')",
+	"brailleColumnSeparatorActivateToSetWidth": "boolean(default=True)",
+	"brailleSetColumnWidthWithRouting": "boolean(default=True)",
 }
 
 

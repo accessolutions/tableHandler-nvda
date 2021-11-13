@@ -130,6 +130,9 @@ class ColumnSeparatorRegion(braille.Region):
 			if scriptHandler.getLastScriptRepeatCount() < 1:
 				table._reportColumnChange()
 				return
+		if not config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"]:
+			table._reportColumnChange()
+			return
 		self.obj.cell.script_modifyColumnWidthBraille(None)
 	
 	def update(self):
@@ -190,8 +193,6 @@ class RowRegionBuffer(TabularBrailleBuffer):
 
 class RowRegion(braille.TextInfoRegion):
 	
-	#updateCount = 0
-	
 	def __init__(self, cell):
 		super(RowRegion, self).__init__(obj=cell)
 		self.hidePreviousRegions = True
@@ -202,6 +203,7 @@ class RowRegion(braille.TextInfoRegion):
 		self.row = weakref.proxy(cell.row)
 		self.table = weakref.proxy(self.row.table)
 		self.isResizingColumnWidth = False
+		self.currentCellRegion = None
 		#global _region
 		#_region = self
 	
@@ -284,6 +286,8 @@ class RowRegion(braille.TextInfoRegion):
 		for width, obj in self.getWindowColumns():
 			if isinstance(obj, Cell):
 				region = CellRegion(obj)
+				if obj == self.cell:
+					self.currentCellRegion = region
 			elif isinstance(obj, ColumnSeparator):
 				region = ColumnSeparatorRegion(obj)
 			else:
@@ -292,18 +296,26 @@ class RowRegion(braille.TextInfoRegion):
 			yield region
 	
 	def routeTo(self, braillePos):
+		if self.isResizingColumnWidth:
+			if (
+				config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
+				and scriptHandler.getLastScriptRepeatCount() == 1
+			):
+				api.getFocusObject().script_done(None)
+				return
+			if config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]:
+				start = self.buffer.regionPosToBufferPos(self.currentCellRegion, 0)
+				width = braillePos - start
+				# @@@
+				queueHandler.queueFunction(queueHandler.eventQueue, speech.speakMessage, f"pos={braillePos}, start={start}")
+				if width >= 0:
+					api.getFocusObject().setColumnWidthBraille(width)
+				else:
+					api.getFocusObject().script_done(None)
+				return
 		self.buffer.routeTo(braillePos)
 	
 	def update(self):
-# 		self.updateCount += 1
-# 		queueHandler.queueFunction(
-# 			queueHandler.eventQueue,
-# 			speech.speakMessage,
-# 			f"update {self.updateCount} at column {self.obj.columnNumber}"
-# 		)
-		#queueHandler.queueFunction(queueHandler.eventQueue, speech.speakMessage, f"update {self.updateCount}")
-		#if self.buffer.regions:
-		#	return
 		buffer = self.buffer
 		buffer.regions = list(self.iterWindowRegions())
 		buffer.update()
@@ -348,6 +360,7 @@ class Cell(ScriptableObject):
 	This class can be used as an overlay to an NVDAObject.
 	"""
 	
+	scriptCategory = SCRIPT_CATEGORY
 	cachePropertiesByDefault = True
 	role = controlTypes.ROLE_TABLECELL
 	
@@ -883,6 +896,14 @@ class TableManager(ScriptableObject):
 		self._receivedFocusEntered = True
 		self._reportFocusEntered()
 	
+	def script_contextMenu(self, gesture):
+		from .gui import menu
+		menu.show()
+	
+	script_contextMenu.canPropagate = True
+	# Translators: The description of a command.
+	script_contextMenu.__doc__ = _("Open the Table Mode context menu")
+	
 	def script_copyToClipboard(self, gesture):
 		cell = self._currentCell
 		if not cell:
@@ -1157,6 +1178,7 @@ class TableManager(ScriptableObject):
 	script_toggleMarkedColumn.__doc__ = _("Toggle marked column")
 	
 	__gestures = {
+		"kb:applications": "contextMenu",
 		"kb:upArrow": "moveToPreviousRow",
 		"kb:downArrow": "moveToNextRow",
 		"kb:leftArrow": "moveToPreviousColumn",

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.21"
+__version__ = "2021.11.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -42,6 +42,7 @@ from globalPlugins.withSpeechMuted import speechMuted
 from . import TableConfig, getTableConfig, getTableConfigKey, getTableManager
 from .coreUtils import Break
 from .documents import DocumentTableHandler, TableHandlerTreeInterceptorScriptWrapper
+from .scriptUtils import overrides
 
 
 addonHandler.initTranslation()
@@ -201,9 +202,9 @@ class TableHandlerResult(Result):
 			return TableHandlerWebModuleScriptWrapper(ti, value)
 		return value
 	
+	@overrides(Result.script_moveto)
 	def script_moveto(self, gesture, **kwargs):
 		with speechMuted():
 			super(TableHandlerResult, self).script_moveto(gesture, **kwargs)
 	
-	script_moveto.__dict__.update(Result.script_moveto.__dict__)
 	script_moveto.enableTableModeAfter = True

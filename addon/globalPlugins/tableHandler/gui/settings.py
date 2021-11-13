@@ -24,7 +24,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.11.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 
 
@@ -129,10 +129,10 @@ class TableHandlerSettingsPanel(SettingsPanel):
 	
 	def isValid(self):
 		try:
-			brailleCellsDecimalStringToUnicode(self.brlColumnSep.Value)
+			brailleCellsDecimalStringToUnicode(self.brlColSep.Value)
 		except Exception:
 			log.info(
-				"Error validating brailleColumnSeparator={!r}".format(self.brlColumnSep.Value),
+				"Error validating brailleColumnSeparator={!r}".format(self.brlColSep.Value),
 				exc_info=True
 			)
 			return False
@@ -147,8 +147,8 @@ class TableHandlerSettingsPanel(SettingsPanel):
 				" to activate controls within table cells."
 			))
 		)
-		item.SetValue(config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"])
-		item = self.brlColumnSep = sHelper.addLabeledControl(
+		item.Value = config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
+		item = self.brlColSep = sHelper.addLabeledControl(
 			# Translators: The label for a settings in the Table Mode settings panel
 			_(
 				"Braille dots to display as column &separator."
@@ -156,9 +156,27 @@ class TableHandlerSettingsPanel(SettingsPanel):
 			wx.TextCtrl
 		)
 		item.Value = config.conf["tableHandler"]["brailleColumnSeparator"]
+		item = self.brlColSepActivate = sHelper.addItem(
+			# Translators: The label for a settings in the Table Mode settings panel
+			wx.CheckBox(self, label=_(
+				"Activate a braille column separator to begin customization of the column width"
+			))
+		)
+		item.Value = config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"]
+		item = self.brlColWidthRouting = sHelper.addItem(
+			# Translators: The label for a settings in the Table Mode settings panel
+			wx.CheckBox(self, label=_(
+				"When customizing the &width of a column in braille, "
+				"clicking on a routing cursor sets the desired width, "
+				"instead of ending the customization"
+			))
+		)
+		item.Value = config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]
 	
 	def onSave(self):
 		config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"] = self.brlDblClick.GetValue()
-		config.conf["tableHandler"]["brailleColumnSeparator"] = self.brlColumnSep.GetValue()
+		config.conf["tableHandler"]["brailleColumnSeparator"] = self.brlColSep.Value
+		config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"] = self.brlColSepActivate.Value
+		config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"] = self.brlColWidthRouting.Value
 		from ..config import handleConfigChange
 		handleConfigChange()

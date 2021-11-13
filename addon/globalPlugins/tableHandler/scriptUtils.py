@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.10.01"
+__version__ = "2021.11.12"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -123,3 +123,16 @@ def getScriptGestureHint(scriptCls, script, obj=None, ancestors=None, doc=None):
 		# Translators: A full script hint message
 		msg = _("{gesture} to {command}").format(gesture=msg, command=doc)
 	return msg
+
+
+def overrides(script):
+	
+	def decorator(func):
+		if not func.__doc__:
+			func.__doc__ = script.__doc__
+			for key, value in script.__dict__.items():
+				if key not in func.__dict__:
+					func.__dict__[key] = value
+		return func
+	
+	return decorator
