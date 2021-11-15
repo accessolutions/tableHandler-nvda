@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.12"
+__version__ = "2021.11.15"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -40,7 +40,6 @@ import brailleInput
 import config
 import controlTypes
 from logHandler import log
-import queueHandler
 import scriptHandler
 import speech
 import textInfos
@@ -50,7 +49,7 @@ import vision
 from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepeatCount
 from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
 
-from .coreUtils import translate
+from .coreUtils import queueCall, translate
 #from .compoundDocuments import CompoundDocument
 from .brailleUtils import (
 	TabularBrailleBuffer,
@@ -307,7 +306,7 @@ class RowRegion(braille.TextInfoRegion):
 				start = self.buffer.regionPosToBufferPos(self.currentCellRegion, 0)
 				width = braillePos - start
 				# @@@
-				queueHandler.queueFunction(queueHandler.eventQueue, speech.speakMessage, f"pos={braillePos}, start={start}")
+				queueCall(speech.speakMessage, f"pos={braillePos}, start={start}")
 				if width >= 0:
 					api.getFocusObject().setColumnWidthBraille(width)
 				else:
@@ -419,6 +418,16 @@ class Cell(ScriptableObject):
 			# Render the whole row.
 			return [RowRegion(cell=self),]
 	
+	def honorsFilter(self, text, caseSensitive=False):
+		needle = text
+		if not needle:
+			return True
+		haystack = self.basicText
+		if not caseSensitive:
+			haystack = haystack.casefold()
+			needle = needle.casefold()
+		return needle in haystack
+	
 	def _isEqual(self, obj):
 		try:
 			return (
@@ -450,7 +459,7 @@ class Cell(ScriptableObject):
 				if getattr(focus, "table", None) is not table:
 					table._hasFocusEntered = False
 			
-			queueHandler.queueFunction(queueHandler.eventQueue, loseFocus_trailer)
+			queueCall(loseFocus_trailer)
 		
 		super(Cell, self).event_loseFocus()
 	
@@ -512,6 +521,13 @@ class Row(ScriptableObject):
 			return None
 		return self._getCell(curNum)
 	
+	def honorsFilter(self, text, caseSensitive=False):
+		return any((
+			True
+			for colNum, colSpan, cell in self._iterCells()
+			if cell.honorsFilter(text, caseSensitive)
+		))
+	
 	def _getCell(self, columnNumber):
 		for colNum, colSpan, cell in self._iterCells():
 			if colNum <= columnNumber < colNum + colSpan:
@@ -559,6 +575,9 @@ class TableManager(ScriptableObject):
 		return "<Table {}>".format(tableID)
 	
 	def initOverlayClass(self):
+		self.filterText = None
+		self.filterCaseSensitive = None
+		self.shouldReportNextFocusEntered = True
 		self._currentColumnNumber = 1
 		self._currentRowNumber = 1
 		#global _tableManager
@@ -630,7 +649,7 @@ class TableManager(ScriptableObject):
 		cell.setFocus()
 		# Wait for the cell to gain focus so it can be retrieved from `globalVars`
 		# rather than being recomputed
-		queueHandler.queueFunction(queueHandler.eventQueue, self._reportColumnChange)
+		queueCall(self._reportColumnChange)
 		return True
 	
 	def _moveToRow(self, rowNumber, row=None, notifyOnFailure=True):
@@ -645,8 +664,17 @@ class TableManager(ScriptableObject):
 		row.setFocus()
 		# Wait for the cell to gain focus so it can be retrieved from `globalVars`
 		# rather than being recomputed
-		queueHandler.queueFunction(queueHandler.eventQueue, self._reportRowChange)
+		queueCall(self._reportRowChange)
 		return True
+	
+	def _onTableFilterChange(self, text=None, caseSensitive=None):
+		speech.cancelSpeech()
+		if not text:
+			# Translators: Announced when canceling the filtering of table rows
+			speech.speakMessage(_("Table filter canceled"))
+		self.filterText = text
+		self.filterCaseSensitive = caseSensitive
+		self.script_moveToFirstDataCell(None)	
 	
 	@speechUnmutedFunction
 	def _reportCellChange(self, axis=AXIS_COLUMNS):
@@ -835,26 +863,29 @@ class TableManager(ScriptableObject):
 		self._reportCellChange(axis=AXIS_COLUMNS)
 
 	def _reportFocusEntered(self):
+		if not self.shouldReportNextFocusEntered:
+			self.shouldReportNextFocusEntered = True
+			return
 		self._reportColumnChange()
 	
 	def _reportRowChange(self):
 		self._reportCellChange(axis=AXIS_ROWS)
 	
-	def _tableMovementScriptHelper(self, axis, direction, notifyOnFailure=True):
+	def _tableMovementScriptHelper(self, axis, direction, notifyOnFailure=True, fromCell=None):
 		"""Helper used to incrementally move along table axis.
 		
 		axis: Either AXIS_COLUMNS or AXIS_ROWS
 		direction: Either DIRECTION_NEXT or DIRECTION_PREVIOUS
 		"""
 		if axis == AXIS_ROWS:
-			fromObj = self._currentRow
+			fromObj = self._currentRow if not fromCell else fromCell.row
 			getNum = lambda obj: obj.rowNumber
 			getObj = lambda num: self._getRow(num)
 			getSpan = getRowSpanSafe
 			moveTo = self._moveToRow
 			repeat = self._reportRowChange
 		elif axis == AXIS_COLUMNS:
-			fromObj = self._currentCell
+			fromObj = self._currentCell if not fromCell else fromCell
 			getNum = lambda obj: obj.columnNumber
 			getObj = lambda num: fromObj.row._getCell(num)
 			getSpan = getColumnSpanSafe
@@ -862,40 +893,58 @@ class TableManager(ScriptableObject):
 			repeat = self._reportColumnChange
 		else:
 			ValueError("axis={}".format(repr(axis)))
-		fromNum = getNum(fromObj)
-		if direction == DIRECTION_NEXT:
-			span = getSpan(fromObj)
-			toNum = fromNum + span
-			toObj = getObj(toNum)
-		elif direction == DIRECTION_PREVIOUS:
-			toNum = fromNum - 1
-			while True:
+		filtered = False
+		while True:
+			fromNum = getNum(fromObj)
+			if direction == DIRECTION_NEXT:
+				span = getSpan(fromObj)
+				toNum = fromNum + span
 				toObj = getObj(toNum)
-				if toObj is fromObj and toNum > 1:
-					toNum -= 1
-					continue
-				break
-		else:
-			raise ValueError("direction={!r}".format(direction))
-		if toObj is None:
-			if notifyOnFailure:
-				ui.message(translate("Edge of table"))
-				repeat()
-			return False
-		toNum_ = toNum
-		toNum = getNum(toObj)
-		if toNum == fromNum:
-			if notifyOnFailure:
-				ui.message(translate("Edge of table"))
-				repeat()
-			return False
+			elif direction == DIRECTION_PREVIOUS:
+				toNum = fromNum - 1
+				while True:
+					toObj = getObj(toNum)
+					if toObj is fromObj and toNum > 1:
+						toNum -= 1
+						continue
+					break
+			else:
+				raise ValueError("direction={!r}".format(direction))
+			if toObj is None:
+				if notifyOnFailure:
+					if filtered:
+						if direction == DIRECTION_NEXT:
+							# Translators: Reported when attempting to navigate table rows
+							ui.message(_("No next matching row. Press escape to cancel filtering."))
+						else:
+							# Translators: Reported when attempting to navigate table rows
+							ui.message(_("No previous matching row. Press escape to cancel filtering."))
+					else:
+						ui.message(translate("Edge of table"))
+					repeat()
+				return False
+			toNum_ = toNum
+			toNum = getNum(toObj)
+			if toNum == fromNum:
+				if notifyOnFailure:
+					ui.message(translate("Edge of table"))
+					repeat()
+				return False
+			filterText = self.filterText
+			if axis == AXIS_ROWS and filterText:
+				if toObj.honorsFilter(filterText, self.filterCaseSensitive):
+					break
+				filtered = True
+				fromObj = toObj
+				continue
+			break
 		return moveTo(getNum(toObj), toObj, notifyOnFailure=notifyOnFailure)
 	
 	def event_focusEntered(self):
 		# We do not seem to receive focusEntered events with IE11
 		self._receivedFocusEntered = True
 		self._reportFocusEntered()
-	
+		
 	def script_contextMenu(self, gesture):
 		from .gui import menu
 		menu.show()
@@ -917,11 +966,29 @@ class TableManager(ScriptableObject):
 	
 	script_copyToClipboard.canPropagate = True
 	
+	def script_filter(self, gesture):
+		from .gui import filter
+		filter.show(self, self.filterText, self.filterCaseSensitive)
+	
+	script_filter.canPropagate = True
+	# Translators: The description of a command.
+	script_filter.__doc__ = _("Filter the table rows")
+	
 	def script_moveToFirstDataCell(self, gesture):
 		cell = self._firstDataCell
 		if not cell:
 			ui.message(translate("Not in a table cell"))
 			return
+		if not cell.row.honorsFilter(self.filterText, self.filterCaseSensitive):
+			if self._tableMovementScriptHelper(
+				AXIS_ROWS, DIRECTION_NEXT,
+				notifyOnFailure=False,
+				fromCell=cell
+			):
+				return
+			# Translators: Announced when trying to apply a table filter with no matching row
+			speech.speakMessage(_("There is no row matching this filter"))
+			self.filterText = None
 		rowNum = cell.rowNumber
 		if self._currentRowNumber != rowNum:
 			report = self._reportRowChange
@@ -930,7 +997,7 @@ class TableManager(ScriptableObject):
 		self._currentRowNumber = rowNum
 		self._currentColumnNumber = cell.columnNumber
 		report()
-		queueHandler.queueFunction(queueHandler.eventQueue, cell.setFocus)
+		queueCall(cell.setFocus)
 	
 	script_moveToFirstDataCell.canPropagate = True
 	# Translators: The description of a command.
@@ -1196,4 +1263,5 @@ class TableManager(ScriptableObject):
 		"kb:control+space": "toggleMarkedColumn",
 		"kb:shift+space": "selectRow",
 		"kb:control+c": "copyToClipboard",
+		"kb:control+f": "filter"
 	}

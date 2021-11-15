@@ -25,12 +25,15 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.03"
+__version__ = "2021.11.15"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
+import wx
+
 from NVDAObjects import DynamicNVDAObjectType
 from logHandler import log
+import queueHandler
 
 
 class Break(Exception):
@@ -73,6 +76,10 @@ def getDynamicClass(bases):
 	return dynCls
 
 
+def queueCall(callable, *args, **kwargs):
+	queueHandler.queueFunction(queueHandler.eventQueue, callable, *args, **kwargs)
+
+
 def translate(text):
 	"""
 	Use translation from NVDA core.
@@ -85,3 +92,11 @@ def translate(text):
 	Reference: https://github.com/nvaccess/nvda/issues/4652
 	"""
 	return _(text)
+
+
+def wx_CallAfter(func):
+	
+	def wrapper(*args, **kwargs):
+		return wx.CallAfter(func, *args, **kwargs)
+	
+	return wrapper

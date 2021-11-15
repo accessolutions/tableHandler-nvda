@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.12"
+__version__ = "2021.11.15"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -43,7 +43,6 @@ import config
 import controlTypes
 import eventHandler
 from logHandler import log
-import queueHandler
 import inputCore
 import scriptHandler
 import speech
@@ -55,7 +54,7 @@ import vision
 from globalPlugins.withSpeechMuted import speechMuted
 
 from . import TableHandler, getTableConfig, getTableConfigKey, getTableManager
-from .coreUtils import Break, catchAll, getDynamicClass
+from .coreUtils import Break, catchAll, getDynamicClass, queueCall
 from .fakeObjects import FakeObject
 from .fakeObjects.table import (
 	FakeTableManager,
@@ -332,7 +331,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 					ti.passThrough = TABLE_MODE
 				except Exception:
 					return
-				queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, ti)
+				queueCall(reportPassThrough, ti)
 				return
 			
 			if enableTableModeAfter or (tableModeBefore and (
@@ -340,7 +339,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 				or (restoreTableModeAfterIfBrowseMode and not passThrough)
 			)):
 				ti.passThrough = TABLE_MODE
-				queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, ti)
+				queueCall(reportPassThrough, ti)
 				return
 			if tableModeBefore and restoreTableModeAfterIfNotMoved:
 				after = ti.selection.copy()
@@ -355,13 +354,11 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 					if table:
 						#log.info("setting _shouldReportNextFocusEntered False")
 						table._shouldReportNextFocusEntered = False
-					queueHandler.queueFunction(
-						queueHandler.eventQueue, setattr, ti, "passThrough", TABLE_MODE
-					)
-					queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, ti)
+					queueCall(setattr, ti, "passThrough", TABLE_MODE)
+					queueCall(reportPassThrough, ti)
 					return
 		
-		queueHandler.queueFunction(queueHandler.eventQueue, thtiswo_trailer)
+		queueCall(thtiswo_trailer)
 
 
 class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTableHandler):
@@ -420,7 +417,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				#	log.info(f"new setPosition: {table._currentRowNumber, table._currentColumnNumber}")
 			if state == TABLE_MODE:
 				self._passThrough = state
-				queueHandler.queueFunction(queueHandler.eventQueue, table.setFocus)
+				queueCall(table.setFocus)
 				return
 		if state:
 			if self.passThrough in (
@@ -470,12 +467,12 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 					or table.tableID != prevTable.tableID 
 				):
 					self.passThrough = TABLE_MODE
-					queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, self)
+					queueCall(reportPassThrough, self)
 			elif self.passThrough == TABLE_MODE:
 				self.passThrough = False
-				queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, self)
+				queueCall(reportPassThrough, self)
 		
-		queueHandler.queueFunction(queueHandler.eventQueue, set_selection_trailer)
+		queueCall(set_selection_trailer)
 	
 	def getBrailleRegions(self, review=False):
 		if self.passThrough == TABLE_MODE:
@@ -693,6 +690,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		self._tableManagers.clear()
 	
 	def event_gainFocus(self, obj, nextHandler):
+		log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r}")
 		if self.passThrough == TABLE_MODE:
 			try:
 				with speechMuted():
@@ -810,7 +808,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def script_nextTable(self, gesture):
 		if self.passThrough is False and self._currentTable:
 			self.passThrough = TABLE_MODE
-			queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, self)
+			queueCall(reportPassThrough, self)
 			return
 		bookmark = self.selection.bookmark
 		with speechMuted(retains=True) as ctx:
@@ -821,12 +819,12 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				self.passThrough = TABLE_MODE
 			except Exception:
 				pass
-			queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, self)
+			queueCall(reportPassThrough, self)
 			if bookmark == self.selection.bookmark:
 				# No movement, quick-nav failed, speak the failure announce
 				ctx.speakMuted()
 		
-		queueHandler.queueFunction(queueHandler.eventQueue, nextTable_trailer)
+		queueCall(nextTable_trailer)
 	
 	script_nextTable.disableTableModeBefore = False
 	
@@ -841,12 +839,12 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				self.passThrough = TABLE_MODE
 			except Exception:
 				pass
-			queueHandler.queueFunction(queueHandler.eventQueue, reportPassThrough, self)
+			queueCall(reportPassThrough, self)
 			if bookmark == self.selection.bookmark:
 				# No movement, quick-nav failed, speak the failure announce
 				ctx.speakMuted()
 		
-		queueHandler.queueFunction(queueHandler.eventQueue, previousTable_trailer)
+		queueCall(previousTable_trailer)
 	
 	script_previousTable.disableTableModeBefore = False
 
@@ -887,15 +885,14 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 		return self.table.ti
 	
 	def event_gainFocus(self):
-#		log.info(f"event_gainFocus({self!r}) at {self.info.bookmark}")
+		log.info(f"event_gainFocus({self!r}) at {self.info.bookmark}")
 		sel = self.info.copy()
 		sel.collapse()
 		table = self.table
 		table.ti._set_selection(sel, reason=REASON_TABLE_MODE)
 		table._currentRowNumber = self.rowNumber
 		table._currentColumnNumber = self.columnNumber
-		super(DocumentFakeCell, self).event_gainFocus()
-	
+		super(DocumentFakeCell, self).event_gainFocus()	
 	
 	@overrides(TextInfoDrivenFakeCell.script_modifyColumnWidthBraille)
 	def script_modifyColumnWidthBraille(self, gesture):
@@ -1074,6 +1071,9 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		raise ValueError("Table empty?")
 	
 	def script_disableTableMode(self, gesture):
+		if self.filterText:
+			self._onTableFilterChange(text=None)
+			return
 		ti = self.ti
 		if ti.passThrough == TABLE_MODE:
 			ti.passThrough = False
