@@ -758,20 +758,22 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextColumn)
 	def script_nextColumn(self, gesture):
-# 		if self.passThrough == TABLE_MODE:
+		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
-# 			return
+			self._currentTable.script_moveToNextColumn(gesture)
+			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_nextColumn(gesture)
 	
 	script_nextColumn.disableTableModeBefore = False
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_previousColumn)
 	def script_previousColumn(self, gesture):
-# 		if self.passThrough == TABLE_MODE:
+		if self.passThrough == TABLE_MODE:
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
-# 			return
+			self._currentTable.script_moveToPreviousColumn(gesture)
+			return
 		super(BrowseModeDocumentTreeInterceptor, self).script_previousColumn(gesture)
 	
 	script_previousColumn.disableTableModeBefore = False
@@ -1084,6 +1086,38 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	script_disableTableMode.canPropagate = True
 	script_disableTableMode.restoreTableModeAfterIfNotMoved = False
 	
+# 	def script_tab(self, gesture):
+# 		sel = self._currentCell.info.copy()
+# 		sel.move(textInfos.UNIT_CHARACTER, -1, endPoint="start")
+# 		ti = self.ti
+# 		item = next(ti._iterNodesByType("focusable", "next", sel), None)
+# 		if item:
+# 			info = item.textInfo.copy()
+# 			info.collapse()
+# 			if (
+# 				info.compareEndPoints(sel, "startToStart") >= 0
+# 				and info.compareEndPoints(sel, "endToEnd") <= 0
+# 			):
+# 				ti.passThrough = FOCUS_MODE_FROM_TABLE_MODE
+# 				ti._set_selection(info, reason=REASON_FOCUS)
+# 				ti.passThrough = FOCUS_MODE_FROM_TABLE_MODE
+# 				obj = item.obj
+# 				if NVDAObjects.NVDAObject.objectWithFocus() != obj:
+# 					obj.setFocus()
+# 				else:
+# 					obj.event_gainFocus()
+# 				return
+# 		# Translators: Reported when attempting to tab into a table cell
+# 		speech.speakMessage(_("No focusable element within this table cell"))
+# 		log.info(f"sel: {sel.bookmark}, item: {item.textInfo.bookmark}, text={item.textInfo.text}")
+# 	
+# 	script_tab.canPropagate = True
+	
 	__gestures = {
-		"kb:escape": "disableTableMode"
+		"kb:escape": "disableTableMode",
+		"kb:control+alt+upArrow": "moveToPreviousRow",
+		"kb:control+alt+downArrow": "moveToNextRow",
+		"kb:control+alt+leftArrow": "moveToPreviousColumn",
+		"kb:control+alt+rightArrow": "moveToNextColumn"
+#		"kb:tab": "tab"
 	}
