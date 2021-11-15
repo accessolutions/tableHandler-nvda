@@ -232,7 +232,9 @@ class TableConfig(object):
 		"columnWidthsByDisplaySize" : {},
 		"columnHeaderRowNumber": None,
 		"rowHeaderColumnNumber": None,
-		"markedColumnNumbers": {}
+		"markedColumnNumbers": {},
+		"firstDataRowNumber": None,
+		"firstDataColumnNumber": None
 	}
 	
 	FILE_PATH = os.path.join(globalVars.appArgs.configPath, "tableHandler.json")

@@ -690,7 +690,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		self._tableManagers.clear()
 	
 	def event_gainFocus(self, obj, nextHandler):
-		log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r}")
+		#log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r}")
 		if self.passThrough == TABLE_MODE:
 			try:
 				with speechMuted():
@@ -887,7 +887,7 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 		return self.table.ti
 	
 	def event_gainFocus(self):
-		log.info(f"event_gainFocus({self!r}) at {self.info.bookmark}")
+		#log.info(f"event_gainFocus({self!r}) at {self.info.bookmark}")
 		sel = self.info.copy()
 		sel.collapse()
 		table = self.table
@@ -988,20 +988,28 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		return count
 	
 	def _get__firstDataCell(self):
+		# TODO: Add a non-document default implementation
 		#log.info("_get__firstDataCell")
 		tableID = self.tableID
+		colHeaRowNum = self._tableConfig["columnHeaderRowNumber"]
+		rowHeaColNum = self._tableConfig["rowHeaderColumnNumber"]
+		firstRowNum = self._tableConfig["firstDataRowNumber"]
+		firstColNum = self._tableConfig["firstDataColumnNumber"]
 		for info in self.ti._iterTableCells(tableID, startPos=None):
 			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECELL)
 			if field:
 				rowNum = field.get("table-rownumber")
 				colNum = field.get("table-columnnumber")
-				if (
-					rowNum is not None and rowNum != self._tableConfig["columnHeaderRowNumber"]
-					and colNum is not None and colNum != self._tableConfig["rowHeaderColumnNumber"]
-				):
-					cell = self._getCell(rowNum, colNum)
-					return cell
-				continue
+				if rowNum is None or colNum is None:
+					continue
+				if rowNum == colHeaRowNum or colNum == rowHeaColNum:
+					continue
+				if firstRowNum is not None and rowNum < firstRowNum:
+					continue
+				if firstColNum is not None and colNum < firstColNum:
+					continue
+				cell = self._getCell(rowNum, colNum)
+				return cell
 	
 	@catchAll(log)
 	def getScript(self, gesture):

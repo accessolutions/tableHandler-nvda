@@ -1243,7 +1243,7 @@ class TableManager(ScriptableObject):
 	script_toggleMarkedColumn.canPropagate = True
 	# Translators: The description of a command.
 	script_toggleMarkedColumn.__doc__ = _("Toggle marked column")
-	
+		
 	__gestures = {
 		"kb:applications": "contextMenu",
 		"kb:upArrow": "moveToPreviousRow",
