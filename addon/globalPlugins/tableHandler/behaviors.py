@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.15"
+__version__ = "2021.11.16"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -50,7 +50,6 @@ from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepea
 from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
 
 from .coreUtils import queueCall, translate
-#from .compoundDocuments import CompoundDocument
 from .brailleUtils import (
 	TabularBrailleBuffer,
 	brailleCellsDecimalStringToIntegers,
@@ -834,7 +833,7 @@ class TableManager(ScriptableObject):
 			else:
 				# The following `sorted` leads to announcing in natural columns order
 				# rather than in the order of which the columns were marked.
-				# TODO: Make marked columns announce order configuration?
+				# TODO: Make marked columns announce order configurable?
 				marked = sorted([
 					colNum for colNum, announce in self._tableConfig["markedColumnNumbers"].items()
 					if announce and colNum not in (curColNum, headerColNum)
@@ -849,15 +848,6 @@ class TableManager(ScriptableObject):
 				speech.speakTextInfo(part.makeTextInfo(textInfos.POSITION_ALL))
 			else:
 				raise ValueError(part)
-# 		try:
-# 			doc = CompoundDocument(self, content)
-# 		except Exception:
-# 			log.exception("Error creating CompoundDocument with content={}".format(repr(content)))
-# 			raise
-# 		info = doc.makeTextInfo(textInfos.POSITION_ALL)
-# 		# Store a strong reference to keep the `FakeObject` alive.
-# 		info.obj = doc
-# 		speech.speakTextInfo(info)
 
 	def _reportColumnChange(self):
 		self._reportCellChange(axis=AXIS_COLUMNS)

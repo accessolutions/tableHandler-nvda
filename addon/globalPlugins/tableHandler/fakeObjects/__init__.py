@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.11.16"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -197,126 +197,7 @@ class FakeObject(NVDAObject):
 			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
 	
 	def setFocus(self):
-# 		ti = self.parent.treeInterceptor
-# 		if isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor):
-# 			# Normally, when entering browse mode from a descendant (e.g. dialog),
-# 			# we want the cursor to move to the focus (#3145).
-# 			# However, we don't want this for fake objects, as these aren't focusable.
-# 			ti._enteringFromOutside = True
-		# This might get called from a background thread and all NVDA events must run in the main thread.
 		eventHandler.queueEvent("gainFocus", self)
 	
 	def _isEqual(self, obj):
 		return self is obj
-
-
-class FakeFlowingObject(FakeObject):
-	"""A `FakeObject` that flows with its siblings.
-	
-	This is typically used as content of a `CompoundDocument`.
-	"""
-	
-	def __init__(self, *args, startsFlow=False, endsFlow=False, **kwargs):
-		super(FakeFlowingObject, self).__init__(*args, **kwargs)
-		self._startsFlow = startsFlow
-		self._endsFlow = endsFlow
-	
-	_cache_flowsFrom = False
-	
-	def _get_flowsFrom(self):
-		if self._startsFlow:
-			return None
-		obj = self.previous
-		if obj is not None:
-			return obj
-		try:
-			obj = self.parent.flowsFrom
-		except Exception:
-			pass
-		return obj
-	
-	_cache_flowsTo = False
-	
-	def _get_flowsTo(self):
-		if self._endsFlow:
-			return None
-		obj = self.firstChild
-		if obj is not None:
-			return obj
-		obj = self.next
-		if obj is not None:
-			return obj
-		try:
-			obj = self.parent.flowsTo
-		except Exception:
-			pass
-		return obj
-	
-	def _get_indexInParent(self):
-		try:
-			return self.parent.children.index(self)
-		except Exception:
-			pass
-		return super(FakeFlowingObject, self).indexInParent
-	
-	_cache_next = False
-	
-	def _get_next(self):
-		return self.parent.getChild(self.indexInParent + 1)
-	
-	_cache_previous = False
-	
-	def _get_previous(self):
-		return self.parent.getChild(self.indexInParent - 1)
-
-
-# class BaseProxy(FakeObject):
-# 	"""Base class for objects that selectively proxy attribute access to another object.
-# 	
-# 	This implementation only takes care on maintaining the proxied object reference.
-# 	"""
-# 	
-# 	def __init__(self, obj, *args, objPreFinalizeCallback=None, **kwargs):
-# 		if isinstance(obj, IAccessible.IAccessible):
-# 			self._obj = lambda args=(
-# 				obj.event_windowHandle,
-# 				obj.event_objectID,
-# 				obj.event_childID
-# 			): IAccessible.getNVDAObjectFromEvent(*args)
-# 		elif isinstance(obj, weakref.ReferenceType):
-# 			self._obj = obj
-# 		else:
-# 			self._obj = weakref.ref(obj, objPreFinalizeCallback)
-# 		super(BaseProxy, self).__init__(*args, **kwargs)
-# 	
-# 	_cache_obj = False
-# 	
-# 	def _get_obj(self):
-# 		return self._obj()
-
-
-# class ProxyContent(FakeFlowingObject, BaseProxy):
-# 	
-# 	def _get_TextInfo(self):
-# 		return self.obj.TextInfo
-# 	
-# 	def _get_basicText(self):
-# 		return self.obj.basicText
-# 	
-# 	def _get_role(self):
-# 		return self.obj.role
-# 	
-# 	def _get_roleText(self):
-# 		return self.obj.roleText
-# 	
-# 	def _get_roleTextBraille(self):
-# 		return self.obj.roleTextBraille
-# 	
-# 	def _get_states(self):
-# 		return self.obj.states
-# 	
-# 	def _get_value(self):
-# 		return self.obj.value
-# 	
-# 	def makeTextInfo(self, *args, **kwargs):
-# 		return self.obj.makeTextInfo(*args, **kwargs)
