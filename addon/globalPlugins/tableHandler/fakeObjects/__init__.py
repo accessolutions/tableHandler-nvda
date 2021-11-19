@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.16"
+__version__ = "2021.11.18"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -197,6 +197,7 @@ class FakeObject(NVDAObject):
 			raise ValueError("_childAccess={}".format(repr(self._childAccess)))
 	
 	def setFocus(self):
+		#log.info(f"setFocus({self!r})", stack_info=True)
 		eventHandler.queueEvent("gainFocus", self)
 	
 	def _isEqual(self, obj):

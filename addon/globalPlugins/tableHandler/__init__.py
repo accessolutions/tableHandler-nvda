@@ -82,6 +82,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def terminate(self):
 		terminate()
 	
+	def event_gainFocus(self, obj, nextHandler):
+		from .documents import DocumentFakeCell
+		focus = api.getFocusObject()
+		if isinstance(focus, DocumentFakeCell):
+			oldTi = focus.ti
+			if isinstance(obj, DocumentFakeCell):
+				if focus.ti is obj.ti:
+					nextHandler()
+					return
+			if focus.ti.passThrough == TABLE_MODE:
+				if obj.treeInterceptor is focus.ti:
+					log.info(f"GP.event_gainFocus({obj!r}) - same TI but not cell")
+				else:
+					log.info(f"GP.event_gainFocus({obj!r}) - other TI")
+		nextHandler()
+	
 	def script_toggleTableMode(self, gesture):
 		from .documents import TABLE_MODE, DocumentFakeCell, reportPassThrough
 		focus = api.getFocusObject()

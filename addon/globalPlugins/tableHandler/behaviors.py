@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.16"
+__version__ = "2021.11.18"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -517,6 +517,7 @@ class Row(ScriptableObject):
 	def _get__currentCell(self):
 		curNum = self.table._currentColumnNumber
 		if curNum is None:
+			log.warning("Current column number is None")  # @@@
 			return None
 		return self._getCell(curNum)
 	
@@ -607,6 +608,8 @@ class TableManager(ScriptableObject):
 		#return self._getCell(self._currentRowNumber, self._currentColumnNumber)
 		cell = self._getCell(self._currentRowNumber, self._currentColumnNumber)
 		#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> table._getCell {cell!r}")
+		if not cell:
+			log.warning("Could not retrieve current cell ({}, {})".format(self._currentRowNumber, self._currentColumnNumber))
 		return cell
 		
 	
@@ -655,7 +658,7 @@ class TableManager(ScriptableObject):
 		if row is None:
 			row = self._getRow(rowNumber)
 		if not row:
-			if nofityOnFailure:
+			if notifyOnFailure:
 				# Translators: Reported when a table is empty.
 				ui.message(translate("Edge of table"))
 			return False

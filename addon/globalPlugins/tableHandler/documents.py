@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.15"
+__version__ = "2021.11.19"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -63,6 +63,7 @@ from .fakeObjects.table import (
 	TextInfoDrivenFakeRow
 )
 from .scriptUtils import ScriptWrapper, overrides
+from .tableUtils import iterVirtualBufferTableCellsSafe
 from .textInfoUtils import getField
 
 
@@ -384,7 +385,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def _set_passThrough(self, state):
 		if self._passThrough == state:
 			return
-		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=False)
+		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(state is True))
 		if state == TABLE_MODE:
 			table = self._currentTable
 			if (
@@ -416,7 +417,13 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				#else:
 				#	log.info(f"new setPosition: {table._currentRowNumber, table._currentColumnNumber}")
 			if state == TABLE_MODE:
+				oldPassThrough = self._passThrough
 				self._passThrough = state
+				if oldPassThrough == BROWSE_MODE_FROM_TABLE_MODE:
+					cell = table._currentCell
+					if cell:
+						api.setFocusObject(cell)
+						return
 				queueCall(table.setFocus)
 				return
 		if state:
@@ -432,6 +439,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			obj = self._lastFocusObj
 			if not obj:
 				obj = NVDAObjects.NVDAObject.objectWithFocus()
+				if not obj in self:
+					obj = self._currentTable.parent
 				self._lastFocusObj = obj
 				#log.info(f"TI.passThrough={state}, Back to real focus {obj!r}({obj.role!r})")
 			#else:
@@ -439,10 +448,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			eventHandler.lastQueuedFocusObject = obj
 			api.setFocusObject(obj)
 			api.setNavigatorObject(obj)
+		#log.info(f">>> _set_passThrough({state}) was {self._passThrough}")
 		super(TableHandlerTreeInterceptor, self)._set_passThrough(state)
 	
 	def _set_selection(self, info, reason=REASON_CARET):
-		#log.info(f"_set_selection({info._startOffset}, {reason})")
+		#log.info(f"_set_selection({id(self)}, {info._startOffset}, {reason})")
 		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=True)
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
@@ -568,6 +578,12 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			return position.makeTextInfo(position)
 		return super(TableHandlerTreeInterceptor, self).makeTextInfo(position)
 	
+# 	def shouldPassThrough(self, obj, reason=None):
+# 		res = super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
+# 		if self.passThrough == FOCUS_MODE_FROM_TABLE_MODE:
+# 			return FOCUS_MODE_FROM_TABLE_MODE
+# 		return res
+	
 	def _focusLastFocusableObject(self, activatePosition=False):
 		"""Used when auto focus focusable elements is disabled to sync the focus
 		to the browse mode cursor.
@@ -650,6 +666,16 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			table._currentRowNumber = rowNum
 			table._currentColumnNumber = colNum
 			cell = table._currentCell
+			if not cell:
+				log.warning(f"Could not retrieve current cell {table._currentRowNumber, table._currentColumnNumber}")
+				table = getTableManager(info=self.selection, setPosition=True, refresh=True)
+				if not table:
+					log.warning(f"Second table fetch failed")
+					return
+				cell = table._currentCell
+				if not cell:
+					log.warning(f"Second current cell fetch failed {table._currentRowNumber, table._currentColumnNumber}")
+					return
 			cell.__dict__.setdefault("_trackingInfo", []).append("TI._handleUpdate")
 			cache = self._speakObjectTableCellChildrenPropertiesCache
 			
@@ -671,9 +697,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 
 			focus = api.getFocusObject()
 			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
+				api.setFocusObject(cell)
 				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
-				table._shouldReportNextFocusEntered = False
-				table.setFocus()
+				#table._shouldReportNextFocusEntered = False
+				#table.setFocus()
 	
 	def _loadBufferDone(self, success=True):
 		#log.warning(f"_loadBufferDone({success})")
@@ -696,30 +723,19 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				with speechMuted():
 					super(TableHandlerTreeInterceptor, self).event_gainFocus(obj, nextHandler)
 			except Exception:
-				log.exception(f"obj={obj!r}")
+				log.exception("obj={!r}".format(obj))
 				raise
 			return
 		#log.info(f"TI.event_gainFocus({obj!r}({obj.role!r}), isLast={obj is self._lastFocusObj}, eqLast={obj == self._lastFocusObj}, isPending={obj is self._objPendingFocusBeforeActivate}, eqPending={obj == self._objPendingFocusBeforeActivate}")
 		# After leaving table mode, the newly focused object might, if activated,
-		# trigger both gain
+		# trigger both gainFocus and stateChange events.
 		pending = self._objPendingFocusBeforeActivate
 		oldCache = getattr(pending, "_speakObjectPropertiesCache", None)
 		super(TableHandlerTreeInterceptor, self).event_gainFocus(obj, nextHandler)
 		newCache = getattr(pending, "_speakObjectPropertiesCache", None)
 		if oldCache != newCache:
-			log.info("Magic")
 			obj._speakObjectPropertiesCache = newCache
 		return
-		if hasattr(obj, "_speakObjectPropertiesCache"):
-			getEventId = lambda obj: (obj.event_windowHandle, obj.event_objectID, obj.event_childID)
-			cache = self._speakObjectTableCellChildrenPropertiesCache
-			cache[getEventId(obj)] = obj._speakObjectPropertiesCache
-			log.info(f"cached {getEventId(obj)!r} -> {obj._speakObjectPropertiesCache}")
-	
-# 	@overrides(BrowseModeDocumentTreeInterceptor.script_activatePosition)
-# 	def script_activatePosition(self, gesture):
-# 		log.info(f"script_activatePosition - sel={self.selection._startOffset} - passThrough={self.passThrough}")
-# 		super(TableHandlerTreeInterceptor, self).script_activatePosition(gesture)
 	
 	def event_stateChange(self, obj, nextHandler):
 		getEventId = lambda obj: (obj.event_windowHandle, obj.event_objectID, obj.event_childID)
@@ -995,7 +1011,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		rowHeaColNum = self._tableConfig["rowHeaderColumnNumber"]
 		firstRowNum = self._tableConfig["firstDataRowNumber"]
 		firstColNum = self._tableConfig["firstDataColumnNumber"]
-		for info in self.ti._iterTableCells(tableID, startPos=None):
+		for info in iterVirtualBufferTableCellsSafe(self.ti, tableID, startPos=None):
 			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECELL)
 			if field:
 				rowNum = field.get("table-rownumber")
@@ -1041,7 +1057,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		return True
 	
 	def _iterCellsTextInfos(self, rowNumber):
-		return self.ti._iterTableCells(self.tableID, row=rowNumber)
+		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)
 	
 	def _reportFocusEntered(self):
 		if not self._shouldReportNextFocusEntered:

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.09.21"
+__version__ = "2021.11.19"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -60,3 +60,13 @@ def getRowSpanSafe(cell):
 		log.exception("cell={}".format(repr(cell)))
 		span = 1
 	return span
+
+def iterVirtualBufferTableCellsSafe(vbuf, tableID, startPos=None, direction="next", row=None, column=None):
+	# `VirtualBuffer._iterTableCells` raises `StopIteration` when calling `next` unguarded line 605.
+	try:
+		for item in vbuf._iterTableCells(
+			tableID, startPos=startPos, direction=direction, row=row, column=column
+		):
+			yield item
+	except StopIteration:
+		return
