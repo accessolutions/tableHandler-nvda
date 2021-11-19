@@ -67,6 +67,13 @@ except ImportError:
 	string_types = (str, unicode)
 
 
+try:
+	REASON_CARET = controlTypes.OutputReason.CARET
+except AttributeError:
+	# NVDA < 2021.1
+	REASON_CARET = controlTypes.REASON_CARET
+
+
 addonHandler.initTranslation()
 
 
@@ -848,7 +855,10 @@ class TableManager(ScriptableObject):
 			if isinstance(part, string_types):
 				speech.speakText(part)
 			elif isinstance(part, NVDAObject):
-				speech.speakTextInfo(part.makeTextInfo(textInfos.POSITION_ALL))
+				speech.speakTextInfo(
+					part.makeTextInfo(textInfos.POSITION_ALL),
+					reason=REASON_CARET
+				)
 			else:
 				raise ValueError(part)
 
