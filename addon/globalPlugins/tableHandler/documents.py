@@ -1096,6 +1096,48 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 			return
 		raise ValueError("Table empty?")
 	
+	def _tableMovementScriptHelper(self, axis, direction, notifyOnFailure=True, fromCell=None):
+		from .behaviors import AXIS_ROWS, DIRECTION_NEXT, DIRECTION_PREVIOUS
+		if not(axis == AXIS_ROWS and self.filterText):
+			return super(DocumentTableManager, self)._tableMovementScriptHelper(
+				axis, direction, notifyOnFailure=notifyOnFailure, fromCell=fromCell
+			)
+		if fromCell:
+			info = fromCell.info.copy()
+		else:
+			fromCell = self._currentCell
+			info = self.ti.selection.copy()
+		info = fromCell.info
+		if direction == DIRECTION_NEXT:
+			reverse = False
+		elif direction == DIRECTION_PREVIOUS:
+			reverse = True
+		else:
+			raise ValueError("direction={!r}".format(direction))
+		while True:
+			if not info.find(
+				self.filterText,
+				reverse=reverse,
+				caseSensitive=self.filterCaseSensitive or False
+			):
+				break
+			func = self.ti._getTableCellCoordsIncludingLayoutTables
+			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = func(info)
+			if tableID is not None and tableID == self.tableID:
+				if rowNum == fromCell.rowNumber:
+					continue
+				return self._moveToRow(rowNum)
+			break
+		if notifyOnFailure:
+			if direction == DIRECTION_NEXT:
+				# Translators: Reported when attempting to navigate table rows
+				ui.message(_("No next matching row. Press escape to cancel filtering."))
+			else:
+				# Translators: Reported when attempting to navigate table rows
+				ui.message(_("No previous matching row. Press escape to cancel filtering."))
+			self._reportRowChange()
+		return False
+	
 	def script_disableTableMode(self, gesture):
 		if self.filterText:
 			self._onTableFilterChange(text=None)
