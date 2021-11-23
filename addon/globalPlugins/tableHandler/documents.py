@@ -423,7 +423,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				if oldPassThrough == BROWSE_MODE_FROM_TABLE_MODE:
 					cell = table._currentCell
 					if cell:
-						#api.setFocusObject(cell)
 						cell.setFocus()
 						return
 				queueCall(table.setFocus)
@@ -465,7 +464,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			if table:
 				cell = table._currentCell
 				if cell:
-					#api.setFocusObject(cell)
 					cell.setFocus()
 					return
 		try:
@@ -1118,7 +1116,6 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		else:
 			fromCell = self._currentCell
 			info = self.ti.selection.copy()
-		info = fromCell.info
 		if direction == DIRECTION_NEXT:
 			reverse = False
 		elif direction == DIRECTION_PREVIOUS:

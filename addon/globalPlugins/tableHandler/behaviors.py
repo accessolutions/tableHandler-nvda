@@ -311,8 +311,6 @@ class RowRegion(braille.TextInfoRegion):
 			if config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]:
 				start = self.buffer.regionPosToBufferPos(self.currentCellRegion, 0)
 				width = braillePos - start
-				# @@@
-				queueCall(speech.speakMessage, f"pos={braillePos}, start={start}")
 				if width >= 0:
 					api.getFocusObject().setColumnWidthBraille(width)
 				else:
