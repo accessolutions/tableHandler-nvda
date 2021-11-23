@@ -25,15 +25,24 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.15"
+__version__ = "2021.11.22"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 import wx
 
 from NVDAObjects import DynamicNVDAObjectType
+import core
 from logHandler import log
 import queueHandler
+
+
+try:
+	from six.moves._thread import get_ident
+except ImportError:
+	# NVDA version < 2018.3
+	import threading
+	get_ident = lambda: threading.current_thread.ident
 
 
 class Break(Exception):
@@ -78,6 +87,17 @@ def getDynamicClass(bases):
 
 def queueCall(callable, *args, **kwargs):
 	queueHandler.queueFunction(queueHandler.eventQueue, callable, *args, **kwargs)
+
+
+def isMainThread():
+	return get_ident() == core.mainThreadId
+
+
+def callInMainThread(callable, *args, **kwargs):
+	if isMainThread():
+		callable(*args, **kwargs)
+		return
+	queueCall(callable, *args, **kwargs)
 
 
 def translate(text):

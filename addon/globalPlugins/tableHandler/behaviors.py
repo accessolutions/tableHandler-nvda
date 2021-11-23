@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.18"
+__version__ = "2021.11.22"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -584,9 +584,9 @@ class TableManager(ScriptableObject):
 	def initOverlayClass(self):
 		self.filterText = None
 		self.filterCaseSensitive = None
-		self.shouldReportNextFocusEntered = True
-		self._currentColumnNumber = 1
-		self._currentRowNumber = 1
+		self._shouldReportNextFocusEntered = True
+		self._currentColumnNumber = None
+		self._currentRowNumber = None
 		#global _tableManager
 		#_tableManager = self
 	
@@ -604,34 +604,47 @@ class TableManager(ScriptableObject):
 		focus = api.getFocusObject()
 		if isinstance(focus, Cell):
 			cell = focus
-			if cell.table is self and cell.rowNumber == self._currentRowNumber:
-				if cell.columnNumber == self._currentColumnNumber:
-					#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> focus {cell!r}")
+			if cell.table is self:
+				if self._currentRowNumber is None or self._currentColumnNumber is None:
+					self._currentRowNumber = cell.rowNumber
+					self._currentColumnNumber = cell.columnNumber
 					return cell
-				#return cell.row._currentCell
-				newCell = cell.row._currentCell
-				#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> row {cell!r} -> {newCell!r}")
-				return newCell
-		#return self._getCell(self._currentRowNumber, self._currentColumnNumber)
-		cell = self._getCell(self._currentRowNumber, self._currentColumnNumber)
-		#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> table._getCell {cell!r}")
+				elif cell.rowNumber == self._currentRowNumber:
+					if cell.columnNumber == self._currentColumnNumber:
+						#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> focus {cell!r}")
+						return cell
+					#return cell.row._currentCell
+					newCell = cell.row._currentCell
+					#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> row {cell!r} -> {newCell!r}")
+					return newCell
+		if self._currentRowNumber is None or self._currentColumnNumber is None:
+			cell = self._firstDataCell
+			if cell:
+				self._currentRowNumber = cell.rowNumber
+				self._currentColumnNumber = cell.columnNumber
+		else:
+			cell = self._getCell(self._currentRowNumber, self._currentColumnNumber)
+			#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> table._getCell {cell!r}")
 		if not cell:
 			log.warning("Could not retrieve current cell ({}, {})".format(self._currentRowNumber, self._currentColumnNumber))
 		return cell
-		
 	
 	_cache__currentRow = False
 	
 	def _get__currentRow(self):
 		focus = api.getFocusObject()
+		curNum = self._currentRowNumber
 		if isinstance(focus, Cell):
 			row = focus.row
-			if row.table is self and row.rowNumber == self._currentRowNumber:
+			if row.table is self and (curNum is None or row.rowNumber == curNum):
 				return row
-		curNum = self._currentRowNumber
 		if curNum is None:
-			return None
-		return self._getRow(curNum)
+			cell = self._firstDataCell
+			if cell:
+				return cell.row
+		else:
+			return self._getRow(curNum)
+		return None
 	
 	def reportFocus(self):  # TODO
 		super(TableManager, self).reportFocus()
@@ -683,7 +696,8 @@ class TableManager(ScriptableObject):
 			speech.speakMessage(_("Table filter canceled"))
 		self.filterText = text
 		self.filterCaseSensitive = caseSensitive
-		self.script_moveToFirstDataCell(None)	
+		if text:
+			self.script_moveToFirstDataCell(None)	
 	
 	@speechUnmutedFunction
 	def _reportCellChange(self, axis=AXIS_COLUMNS):
@@ -865,9 +879,11 @@ class TableManager(ScriptableObject):
 	def _reportColumnChange(self):
 		self._reportCellChange(axis=AXIS_COLUMNS)
 
+	@speechUnmutedFunction
 	def _reportFocusEntered(self):
-		if not self.shouldReportNextFocusEntered:
-			self.shouldReportNextFocusEntered = True
+		speech.cancelSpeech()
+		if not self._shouldReportNextFocusEntered:
+			self._shouldReportNextFocusEntered = True
 			return
 		self._reportColumnChange()
 	
@@ -1000,7 +1016,7 @@ class TableManager(ScriptableObject):
 		self._currentRowNumber = rowNum
 		self._currentColumnNumber = cell.columnNumber
 		report()
-		queueCall(cell.setFocus)
+		cell.setFocus()
 	
 	script_moveToFirstDataCell.canPropagate = True
 	# Translators: The description of a command.

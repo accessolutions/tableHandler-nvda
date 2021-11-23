@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.19"
+__version__ = "2021.11.22"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -385,7 +385,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def _set_passThrough(self, state):
 		if self._passThrough == state:
 			return
-		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(state is True))
+		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(True or state is True))
 		if state == TABLE_MODE:
 			table = self._currentTable
 			if (
@@ -401,7 +401,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 					table._setPosition(self.selection)
 					#log.info(f"after setPosition: {table._currentRowNumber, table._currentColumnNumber}")
 				except ValueError:
-					table = None
+					table.__dict__.setdefault("_trackingInfo", []).append("dropped by _set_passThrough")
+					table = self._currentTable = None
 			#elif table:
 			#	log.info(f"no setPosition: {table._currentRowNumber, table._currentColumnNumber}")
 			if not table:
@@ -422,7 +423,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				if oldPassThrough == BROWSE_MODE_FROM_TABLE_MODE:
 					cell = table._currentCell
 					if cell:
-						api.setFocusObject(cell)
+						#api.setFocusObject(cell)
+						cell.setFocus()
 						return
 				queueCall(table.setFocus)
 				return
@@ -452,13 +454,20 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		super(TableHandlerTreeInterceptor, self)._set_passThrough(state)
 	
 	def _set_selection(self, info, reason=REASON_CARET):
-		#log.info(f"_set_selection({id(self)}, {info._startOffset}, {reason})")
+		#log.info(f"_set_selection({id(self)}, {info._startOffset}, {reason})", stack_info=reason == REASON_FOCUS)
 		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=True)
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
 				super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=REASON_CARET)
 			return
-		prevTable = self._currentTable
+		elif reason == REASON_FOCUS and self.passThrough == TABLE_MODE:
+			table = self._currentTable
+			if table:
+				cell = table._currentCell
+				if cell:
+					#api.setFocusObject(cell)
+					cell.setFocus()
+					return
 		try:
 			super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=reason)
 		except Exception:
@@ -466,21 +475,16 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			raise
 
 		def set_selection_trailer():
+			#log.info(f"set_selection_trailer: {self.passThrough} {api.getFocusObject()}")
 			oldTable = self._currentTable
 			table = self._currentTable = getTableManager(info=self.selection, setPosition=True)
 			if oldTable and table is not oldTable:
 				oldTable.__dict__.setdefault("_trackingInfo", []).append("dropped by set_selection_trailer")
-			if table:
-				if False and not (reason == REASON_FOCUS and self.passThrough is False) and table != prevTable and (
-					not table
-					or not prevTable
-					or table.tableID != prevTable.tableID 
-				):
-					self.passThrough = TABLE_MODE
-					queueCall(reportPassThrough, self)
-			elif self.passThrough == TABLE_MODE:
+			del oldTable
+			if not table and self.passThrough == TABLE_MODE:
 				self.passThrough = False
 				queueCall(reportPassThrough, self)
+			del table
 		
 		queueCall(set_selection_trailer)
 	
@@ -578,7 +582,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			return position.makeTextInfo(position)
 		return super(TableHandlerTreeInterceptor, self).makeTextInfo(position)
 	
-# 	def shouldPassThrough(self, obj, reason=None):
+	def shouldPassThrough(self, obj, reason=None):
+		if self.passThrough == TABLE_MODE:
+			return TABLE_MODE
+		return super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
 # 		res = super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
 # 		if self.passThrough == FOCUS_MODE_FROM_TABLE_MODE:
 # 			return FOCUS_MODE_FROM_TABLE_MODE
@@ -698,6 +705,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			focus = api.getFocusObject()
 			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
 				api.setFocusObject(cell)
+				#cell.setFocus()
 				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
 				#table._shouldReportNextFocusEntered = False
 				#table.setFocus()
@@ -875,6 +883,19 @@ class DocumentFakeObject(FakeObject):
 	def _set_treeInterceptor(self, value):
 		# Defeats NVDA's attempts with IE11 to set a TreeInterceptor
 		pass
+	
+	def setFocus(self):
+		obj = self.focusRedirect
+		if obj and obj is not self:
+			obj.setFocus()
+			return
+		api.setFocusObject(self)
+		import globalVars
+		for parent in globalVars.focusAncestors[globalVars.focusDifferenceLevel:]:
+			if not isinstance(parent, DocumentFakeObject):
+				continue
+			eventHandler.executeEvent("focusEntered", parent)
+		self.event_gainFocus()
 
 
 class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
@@ -983,10 +1004,6 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	RowClass = DocumentFakeRow
 	
-	def __init__(self, *args, ti=None, startPos=None, **kwargs):
-		super(DocumentTableManager, self).__init__(*args, ti=ti, startPos=startPos, **kwargs)
-		self._shouldReportNextFocusEntered = True
-	
 	def _get_field(self):
 		info = self.startPos if self.startPos else self._currentCell.info
 		return getField(info, "controlStart", role=controlTypes.ROLE_TABLE)
@@ -1058,12 +1075,6 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	def _iterCellsTextInfos(self, rowNumber):
 		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)
-	
-	def _reportFocusEntered(self):
-		if not self._shouldReportNextFocusEntered:
-			self._shouldReportNextFocusEntered = True
-			return
-		super(DocumentTableManager, self)._reportFocusEntered()
 	
 	def _setPosition(self, info):
 		#log.info(f"_setPosition({info._startOffset})", stack_info=True)
