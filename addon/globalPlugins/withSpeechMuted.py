@@ -13,7 +13,7 @@
 from __future__ import absolute_import, division, print_function
 
 
-__version__ = "2021.09.16"
+__version__ = "2021.11.22"
 __author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -41,6 +41,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		queueHandler.queueFunction = _queueFunction
 		_speak.super = speech.speak
 		speech.speak = _speak
+		if not hasattr(speech, "speech"):
+			# NVDA < 2020.1
+			return
+		speech.speech.speak = _speak
 	
 	def terminate(self):
 		setter = lambda value: setattr(queueHandler, "queueFunction", value)
@@ -69,6 +73,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 			setter(obj.super)
 			break
+		if not hasattr(speech, "speech"):
+			# NVDA < 2020.1
+			return
+		setter = lambda value: setattr(speech.speech, "speak", value)
+		obj = speech.speak
+		while True:
+			if obj is not _speak:
+				if not hasattr(obj, "super"):
+					log.error("Monkey-patch has been overridden: speech.speech.speak")
+					speech.speech.speak = obj
+					break
+				setter = lambda value, obj=obj: setattr(obj, "super", value)
+				obj = obj.super
+				continue
+			setter(obj.super)
+			break
+
 
 
 _activeContextsByThread = {}
