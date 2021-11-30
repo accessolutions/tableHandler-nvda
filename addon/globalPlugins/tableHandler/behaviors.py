@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.22"
+__version__ = "2021.11.19"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -56,8 +56,13 @@ from .brailleUtils import (
 	brailleCellsIntegersToUnicode
 )
 from .fakeObjects import FakeObject
-from .scriptUtils import getScriptGestureHint
-from .tableUtils import getColumnSpanSafe, getRowSpanSafe
+from .scriptUtils import getScriptGestureTutorMessage
+from .tableUtils import (
+	getColumnHeaderTextSafe,
+	getColumnSpanSafe,
+	getRowHeaderTextSafe,
+	getRowSpanSafe
+)
 
 
 try:
@@ -384,6 +389,13 @@ class Cell(ScriptableObject):
 			tableID, rowNumber, columnNumber, id(self), getattr(self, "_trackingInfo", [])
 		)
 	
+	def _get_columnHeaderText(self):
+		num = self.columnNumber
+		customHeaders = self.table._tableConfig["customColumnHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
+		return getColumnHeaderTextSafe(super(Cell, self))
+	
 	def _get_columnWidthBraille(self):
 		return self.table._tableConfig.getColumnWidth(self.columnNumber)
 	
@@ -394,6 +406,13 @@ class Cell(ScriptableObject):
 	
 	def _get_row(self):
 		return self.parent
+	
+	def _get_rowHeaderText(self):
+		num = self.rowNumber
+		customHeaders = self.table._tableConfig["customRowHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
+		return getRowHeaderTextSafe(super(Cell, self))
 	
 	def _get_states(self):
 		states = self.parent.states.copy()
@@ -703,9 +722,9 @@ class TableManager(ScriptableObject):
 # 		speech.speakMessage("{}, {}".format(self._currentRowNumber, self._currentColumnNumber))
 # 		speech.speakTextInfo(self._currentCell.makeTextInfo(textInfos.POSITION_ALL))
 # 		return
-		curRowNum = self._currentRowNumber
-		curColNum = self._currentColumnNumber
 		curCell = self._currentCell
+		curRowNum = curCell.rowNumber
+		curColNum = curCell.columnNumber
 		if curCell is None:
 			ui.message(translate("Not in a table cell"))
 			return
@@ -727,11 +746,14 @@ class TableManager(ScriptableObject):
 				return
 			content.append(cell.basicText)
 		
-		headerRowNum = self._tableConfig["columnHeaderRowNumber"]
+		cfg = self._tableConfig
+		headerRowNum = cfg["columnHeaderRowNumber"]
 		inColHeader = headerRowNum == curRowNum or curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
-		headerColNum = self._tableConfig["rowHeaderColumnNumber"]
+		headerColNum = cfg["rowHeaderColumnNumber"]
 		inRowHeader = headerColNum == curColNum or curCell.role == controlTypes.ROLE_TABLEROWHEADER
 		inHeader = inColHeader or inRowHeader
+		hasCustomRowHeader = curRowNum in cfg["customRowHeaders"]
+		hasCustomColHeader = curColNum in cfg["customColumnHeaders"]
 				
 		if inHeader:
 			if inColHeader:
@@ -742,11 +764,10 @@ class TableManager(ScriptableObject):
 				if headerRowNum is False:
 					# Translator: Announced when moving to a disabled header cell
 					content.append(_("Disabled {role}").format(role=roleLabel))
-				elif (
+				elif (curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER and (
 					isinstance(headerRowNum, int)
 					and headerRowNum != curRowNum
-					and curCell.role == controlTypes.ROLE_TABLECOLUMNHEADER
-				):
+				) or hasCustomColHeader):
 					# Translator: Announced when moving to a superseded header cell
 					content.append(_("Original {role}").format(role=roleLabel))
 				elif axis==AXIS_ROWS or not inRowHeader:
@@ -759,11 +780,10 @@ class TableManager(ScriptableObject):
 				if headerColNum is False:
 					# Translator: Announced when moving to a disabled header cell
 					content.append(_("Disabled {role}").format(role=roleLabel))
-				elif (
+				elif (curCell.role == controlTypes.ROLE_TABLEROWHEADER and (
 					isinstance(headerColNum, int)
 					and headerColNum != curColNum
-					and curCell.role == controlTypes.ROLE_TABLEROWHEADER
-				):
+				) or hasCustomRowHeader):
 					# Translator: Announced when moving to a superseded header cell
 					content.append(_("Original {role}").format(role=roleLabel))
 				else:
@@ -771,8 +791,8 @@ class TableManager(ScriptableObject):
 		# Do not announce the row header of a column header cell,
 		# but do announce the column header of a row header cell
 		if (
-			(axis == AXIS_COLUMNS and not inColHeader and headerRowNum is None)
-			or (axis == AXIS_ROWS and headerColNum is None)
+			(axis == AXIS_COLUMNS and not inColHeader and (headerRowNum is None or hasCustomRowHeader))
+			or (axis == AXIS_ROWS and (headerColNum is None or hasCustomRowHeader))
 		):
 			headerText = None
 			try:
@@ -786,15 +806,15 @@ class TableManager(ScriptableObject):
 				headerText = headerText.strip()
 			if headerText:
 				content.append(headerText)
-		elif axis == AXIS_COLUMNS and not inColHeader and headerRowNum is not False:
+		elif axis == AXIS_COLUMNS and not inColHeader and headerRowNum is not False and not hasCustomRowHeader:
 			appendCell(headerRowNum)
-		elif axis == AXIS_ROWS and headerColNum not in (False, curColNum):
+		elif axis == AXIS_ROWS and not hasCustomColHeader and headerColNum not in (False, curColNum):
 			appendCell(headerColNum)
 		
 		content.append(curCell)
 		
 		if inColHeader:
-			marked = self._tableConfig["markedColumnNumbers"]
+			marked = cfg["markedColumnNumbers"]
 			if curColNum in marked:
 				if axis == AXIS_ROWS or curColNum != headerColNum:
 					# Translators: Announced when moving to a marked header cell
@@ -857,7 +877,7 @@ class TableManager(ScriptableObject):
 				# rather than in the order of which the columns were marked.
 				# TODO: Make marked columns announce order configurable?
 				marked = sorted([
-					colNum for colNum, announce in self._tableConfig["markedColumnNumbers"].items()
+					colNum for colNum, announce in cfg["markedColumnNumbers"].items()
 					if announce and colNum not in (curColNum, headerColNum)
 				])
 			for colNum in marked:
@@ -879,7 +899,7 @@ class TableManager(ScriptableObject):
 
 	@speechUnmutedFunction
 	def _reportFocusEntered(self):
-		speech.cancelSpeech()
+		#speech.cancelSpeech()
 		if not self._shouldReportNextFocusEntered:
 			self._shouldReportNextFocusEntered = True
 			return
@@ -1177,13 +1197,16 @@ class TableManager(ScriptableObject):
 				headerText = self._currentCell.columnHeaderText
 			except NotImplementedError:
 				headerText = ""
+			# Translators: Announced when customizing column headers
 			ui.message(_("Column header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
 			self._tableConfig["columnHeaderRowNumber"] = False
+			# Translators: Announced when customizing column headers
 			ui.message(_("Column header disabled"))
 		else:
 			self._tableConfig["columnHeaderRowNumber"] = curNum
 			#marked[curNum] = None
+			# Translators: Announced when customizing column headers
 			ui.message(_("Row set as column header"))
 	
 	script_setColumnHeader.canPropagate = True
@@ -1227,7 +1250,7 @@ class TableManager(ScriptableObject):
 		if curColNum == self._tableConfig["rowHeaderColumnNumber"]:
 			# Translators: Reported when attempting to mark a column
 			msg = _("This column is already marked as row header.")
-			hint = getScriptGestureHint(
+			hint = getScriptGestureTutorMessage(
 				TableManager,
 				self.script_setRowHeader,
 				# Translators: The {command} portion of a script hint message

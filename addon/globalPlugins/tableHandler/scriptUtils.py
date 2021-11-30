@@ -25,18 +25,19 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.12"
+__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 from functools import WRAPPER_ASSIGNMENTS, WRAPPER_UPDATES, update_wrapper
-from itertools import chain
+from itertools import groupby
 import time
 
 import addonHandler
 import inputCore
 from keyboardHandler import KeyboardInputGesture
 from logHandler import log
+import gui
 import scriptHandler
 
 from .coreUtils import translate 
@@ -100,19 +101,76 @@ class ScriptWrapper(object):
 		return "<{} script={!r}>".format("SW" or type(self), self.script)
 
 
-def getScriptGestureHint(scriptCls, script, obj=None, ancestors=None, doc=None):
+def getScriptInfo(scriptCls, script, obj=None, ancestors=None):
+	if obj is None:
+		obj = gui.mainFrame.prevFocus
+	if ancestors is None:
+		ancestors = gui.mainFrame.prevFocusAncestors
 	map = inputCore.manager.getAllGestureMappings(obj=obj, ancestors=ancestors)
 	category = inputCore._AllGestureMappingsRetriever.getScriptCategory(scriptCls, script)
 	scripts = map.get(category, {})
-	scriptInfo = scripts.get(script.__doc__, None)
-	if not scriptInfo or not scriptInfo.gestures:
+	return scripts.get(script.__doc__, None)
+
+
+def getScriptInfoMainGestureDetails(scriptInfo):
+	# Default bindings
+	cls = scriptInfo.cls
+	clsGestureMap = getattr(cls, "_{}__gestures".format(cls.__name__))
+	defaultList = [
+		inputCore.getDisplayTextForGestureIdentifier(gesture)
+		for gesture, scriptName in clsGestureMap.items()
+		if scriptName == scriptInfo.scriptName
+	]
+	# Effective bindings
+	effectiveList = [
+		inputCore.getDisplayTextForGestureIdentifier(gesture)
+		for gesture in scriptInfo.gestures
+	]
+	# If there are default bindings in effect, consider only these
+	gesturesList = [item for item in defaultList if item in effectiveList]
+	if not gesturesList:
+		gesturesList = effectiveList
+	del effectiveList
+	del defaultList
+	
+	key = lambda item: item[0]
+	mainBySource = {
+		source: next(items)[1]  # Keep only the first gesture for each source
+		for source, items in groupby(sorted(gesturesList, key=key), key=key)
+	}
+	source = translate("keyboard, all layouts")
+	main = mainBySource.get(source)
+	isKeyboardGesture = True
+	if not main:
+		for layout in KeyboardInputGesture.LAYOUTS:  # Only 1 will match effective bindings
+			source = translate("%s keyboard") % layout
+			main = mainBySource.get(source)
+			if main:
+				break
+	if not main:
+		source, main = next(mainBySource.items())
+		isKeyboardGesture = False
+	return isKeyboardGesture, source, main
+
+
+def getScriptGestureMenuHint(scriptCls, script, obj=None, ancestors=None):
+	scriptInfo = getScriptInfo(scriptCls, script, obj=obj, ancestors=ancestors)
+	if not scriptInfo:
 		return None
-	gesture = next(iter(scriptInfo.gestures))
-	source, main = inputCore.getDisplayTextForGestureIdentifier(gesture)
-	if (
-		source == translate("keyboard, all layouts")
-		or source in [translate("%s keyboard") % layout for layout in KeyboardInputGesture.LAYOUTS]
-	):
+	isKeyboardGesture, source, main = getScriptInfoMainGestureDetails(scriptInfo)
+	if isKeyboardGesture:
+		hint = main
+	else:
+		hint = translate("{main} ({source})").format(main=main, source=source)
+	return "\t{}".format(hint)
+
+
+def getScriptGestureTutorMessage(scriptCls, script, obj=None, ancestors=None, doc=None):
+	scriptInfo = getScriptInfo(scriptCls, script, obj=obj, ancestors=ancestors)
+	if not scriptInfo:
+		return None
+	isKeyboardGesture, source, main = getScriptInfoMainGestureDetails(scriptInfo)
+	if isKeyboardGesture:
 		# Translators: A script hint message for a keyboard gesture
 		msg = _("Press {shortcut}").format(shortcut=main)
 	else:

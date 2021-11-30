@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.12"
+__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -89,12 +89,16 @@ class FakeCell(Cell, FakeObject):
 		raise NotImplementedError
 
 	def _get_columnHeaderText(self):
+		num = self.columnNumber
+		customHeaders = self.table._tableConfig["customColumnHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
 		func = getattr(self.row, "_getColumnHeaderText", None)
 		if func is not None:
-			return func(self.columnNumber)
+			return func(num)
 		func = getattr(self.table, "_getColumnHeaderText", None)
 		if func is not None:
-			return func(self.columnNumber)
+			return func(num)
 		raise NotImplementedError
 	
 	def _get_location(self):
@@ -121,6 +125,19 @@ class FakeCell(Cell, FakeObject):
 		if isinstance(row, FakeRow):
 			return super(FakeCell, self).previous
 		return row._getCell(self.columnNumber - 1)
+	
+	def _get_rowHeaderText(self):
+		num = self.rowNumber
+		customHeaders = self.table._tableConfig["customRowHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
+		func = getattr(self.row, "_getRowHeaderText", None)
+		if func is not None:
+			return func(num)
+		func = getattr(self.table, "_getRowHeaderText", None)
+		if func is not None:
+			return func(num)
+		raise NotImplementedError
 	
 	def _get_rowNumber(self):
 		return self.row.rowNumber
@@ -245,6 +262,10 @@ class TextInfoDrivenFakeCell(FakeCell):
 		return self.info.text
 	
 	def _get_columnHeaderText(self):
+		num = self.columnNumber
+		customHeaders = self.table._tableConfig["customColumnHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
 		if self.info is None:
 			return None
 		return self.field.get("table-columnheadertext")
@@ -273,6 +294,20 @@ class TextInfoDrivenFakeCell(FakeCell):
 		if self.info is None:
 			return super(TextInfoDrivenFakeCell, self).role
 		return self.field.get("role")
+	
+	def _get_rowHeaderText(self):
+		num = self.rowNumber
+		customHeaders = self.table._tableConfig["customRowHeaders"]
+		if num in customHeaders:
+			return customHeaders[num]
+		if self.info is None:
+			return None
+		return self.field.get("table-rowheadertext")
+	
+	def _get_columnNumber(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-columnnumber")
 	
 	def _get_rowNumber(self):
 		if self.info is None:

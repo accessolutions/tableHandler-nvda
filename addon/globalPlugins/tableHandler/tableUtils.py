@@ -25,11 +25,18 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.19"
+__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 from logHandler import log
+
+
+def getColumnHeaderTextSafe(cell):
+	try:
+		return cell.columnHeaderText
+	except NotImplementedError:
+		return None
 
 
 def getColumnSpanSafe(cell):
@@ -46,6 +53,13 @@ def getColumnSpanSafe(cell):
 		log.exception("cell={}".format(repr(cell)))
 		span = 1
 	return span
+
+
+def getRowHeaderTextSafe(cell):
+	try:
+		return cell.rowHeaderText
+	except NotImplementedError:
+		return None
 
 
 def getRowSpanSafe(cell):

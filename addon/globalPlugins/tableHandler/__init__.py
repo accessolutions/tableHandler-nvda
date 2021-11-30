@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.03"
+__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -246,8 +246,10 @@ class TableConfig(object):
 	DEFAULTS = {
 		"defaultColumnWidthByDisplaySize": {0: 10},
 		"columnWidthsByDisplaySize" : {},
-		"columnHeaderRowNumber": None,
 		"rowHeaderColumnNumber": None,
+		"columnHeaderRowNumber": None,
+		"customRowHeaders": {},
+		"customColumnHeaders": {},
 		"markedColumnNumbers": {},
 		"firstDataRowNumber": None,
 		"firstDataColumnNumber": None
@@ -326,7 +328,12 @@ class TableConfig(object):
 			self.data = data
 			# JSON only supports strings for mappings keys
 			intKeyedDict = lambda map: {int(key): value for key, value in map.items()}
-			for key in ("defaultColumnWidthByDisplaySize", "markedColumnNumbers"):
+			for key in (
+				"customColumnHeaders",
+				"customRowHeaders",
+				"defaultColumnWidthByDisplaySize",
+				"markedColumnNumbers"
+			):
 				if key in data:
 					data[key] = {int(key): value for key, value in data[key].items()}
 			if "columnWidthsByDisplaySize" in data:
