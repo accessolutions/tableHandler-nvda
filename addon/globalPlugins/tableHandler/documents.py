@@ -25,11 +25,12 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.22"
+__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 from itertools import chain
+import os.path
 import weakref
 
 import NVDAObjects
@@ -44,6 +45,7 @@ import controlTypes
 import eventHandler
 from logHandler import log
 import inputCore
+import nvwave
 import scriptHandler
 import speech
 import textInfos
@@ -231,8 +233,15 @@ REASON_TABLE_MODE = "tableMode"
 def reportPassThrough(treeInterceptor, onlyIfChanged=True):
 	if treeInterceptor.passThrough == TABLE_MODE:
 		if browseMode_reportPassThrough.last is not treeInterceptor.passThrough:
-			# Translators: Announced when switching to Table Mode
-			speech.speakMessage(_("Table Mode"))
+			if config.conf["virtualBuffers"]["passThroughAudioIndication"]:
+				nvwave.playWaveFile(os.path.join(
+					os.path.dirname(__file__),
+					r"..\..\waves",
+					"tableMode.wav"
+				))
+			else:
+				# Translators: Announced when switching to Table Mode
+				speech.speakMessage(_("Table Mode"))
 		browseMode_reportPassThrough.last = treeInterceptor.passThrough
 		return
 	browseMode_reportPassThrough(treeInterceptor, onlyIfChanged=onlyIfChanged)
