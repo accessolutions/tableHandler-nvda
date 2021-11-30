@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tableHandler 2021.09.17-dev\n"
 "Report-Msgid-Bugs-To: nvda-translations@groups.io\n"
-"POT-Creation-Date: 2021-11-30 10:32+0100\n"
-"PO-Revision-Date: 2021-11-30 10:33+0100\n"
+"POT-Creation-Date: 2021-11-30 11:14+0100\n"
+"PO-Revision-Date: 2021-11-30 11:15+0100\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: fr\n"
@@ -198,21 +198,21 @@ msgstr "Sélectionner la ligne en cours (si supporté)"
 
 #. Translators: Announced when customizing column headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1201
-#: addon\globalPlugins\tableHandler\gui\menu.py:155
-#: addon\globalPlugins\tableHandler\gui\menu.py:166
+#: addon\globalPlugins\tableHandler\gui\menu.py:178
+#: addon\globalPlugins\tableHandler\gui\menu.py:189
 msgid "Column header reset to default: {}"
 msgstr "Entêtes de colonnes par défaut : {}"
 
 #. Translators: Announced when customizing column headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1205
-#: addon\globalPlugins\tableHandler\gui\menu.py:159
+#: addon\globalPlugins\tableHandler\gui\menu.py:182
 msgid "Column header disabled"
 msgstr "Entête de colonne désactivée"
 
 #. marked[curNum] = None
 #. Translators: Announced when customizing column headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1210
-#: addon\globalPlugins\tableHandler\gui\menu.py:170
+#: addon\globalPlugins\tableHandler\gui\menu.py:193
 msgid "Row set as column header"
 msgstr "Cette ligne est maintenant lue comme entête de colonne."
 
@@ -224,22 +224,22 @@ msgstr "Utiliser la ligne en cours comme entête de colonne."
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1229
-#: addon\globalPlugins\tableHandler\gui\menu.py:182
-#: addon\globalPlugins\tableHandler\gui\menu.py:193
+#: addon\globalPlugins\tableHandler\gui\menu.py:204
+#: addon\globalPlugins\tableHandler\gui\menu.py:215
 msgid "Row header reset to default: {}"
 msgstr "Entête de ligne par défaut : {}"
 
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1233
-#: addon\globalPlugins\tableHandler\gui\menu.py:186
+#: addon\globalPlugins\tableHandler\gui\menu.py:208
 msgid "Row header disabled"
 msgstr "Entête de ligne désactivée"
 
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
 #: addon\globalPlugins\tableHandler\behaviors.py:1238
-#: addon\globalPlugins\tableHandler\gui\menu.py:197
+#: addon\globalPlugins\tableHandler\gui\menu.py:219
 msgid "Column set as row header"
 msgstr "Cette colonne est maintenant lue comme entête de lignes."
 
@@ -377,72 +377,92 @@ msgid "Review only the table rows containing this text:"
 msgstr "Ne parcourir que les lignes comportant ce texte :"
 
 #. Translators: An entry in the context menu Table Mode > Column Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:69
+#: addon\globalPlugins\tableHandler\gui\menu.py:68
 msgid "Use the default column headers of this table"
 msgstr "Utiliser les entêtes de colonnes par défaut de ce tableau"
 
 #. Translators: An entry in the context menu Table Mode > Column Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:72
+#: addon\globalPlugins\tableHandler\gui\menu.py:71
 msgid "Use this row as column headers"
 msgstr "Utiliser cette ligne comme entête de colonne"
 
 #. Translators: An entry in the context menu Table Mode > Column Headers
 #. Translators: An entry in the context menu Table Mode > Row Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:85
-#: addon\globalPlugins\tableHandler\gui\menu.py:119
+#: addon\globalPlugins\tableHandler\gui\menu.py:84
+#: addon\globalPlugins\tableHandler\gui\menu.py:118
 msgid "&Customized: {}"
 msgstr "&Personnalisé : {}"
 
 #. Translators: An entry in the context menu Table Mode > Column Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:88
+#: addon\globalPlugins\tableHandler\gui\menu.py:87
 msgid "&Customize the header of this column"
 msgstr "&Personnaliser l'entête de cette colonne"
 
 #. Translators: An entry in the Table Mode context menu
-#: addon\globalPlugins\tableHandler\gui\menu.py:95
+#: addon\globalPlugins\tableHandler\gui\menu.py:94
 msgid "Column Headers"
 msgstr "Entêtes de colonne"
 
 #. Translators: An entry in the context menu Table Mode > Row Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:103
+#: addon\globalPlugins\tableHandler\gui\menu.py:102
 msgid "Use the default row headers of this table"
 msgstr "Utiliser les entêtes de ligne par défaut de ce tableau"
 
 #. Translators: An entry in the context menu Table Mode > Row Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:106
+#: addon\globalPlugins\tableHandler\gui\menu.py:105
 msgid "Use this column as row headers"
 msgstr "Utiliser cette colonne comme entêtes de lignes."
 
 #. Translators: An entry in the context menu Table Mode > Row Headers
-#: addon\globalPlugins\tableHandler\gui\menu.py:122
+#: addon\globalPlugins\tableHandler\gui\menu.py:121
 msgid "&Customize the header of this row"
 msgstr "&Personnaliser l'entête de cette ligne"
 
 #. Translators: An entry in the Table Mode context menu
-#: addon\globalPlugins\tableHandler\gui\menu.py:129
+#: addon\globalPlugins\tableHandler\gui\menu.py:128
 msgid "Row Headers"
 msgstr "Entêtes de ligne"
 
+#. Translators: An entry in the context menu Table Mode > Marked Columns
+#: addon\globalPlugins\tableHandler\gui\menu.py:135
+msgid "Marked with &announce"
+msgstr "Marquée avec &annonce"
+
+#. Translators: An entry in the context menu Table Mode > Marked Columns
+#: addon\globalPlugins\tableHandler\gui\menu.py:139
+msgid "Marked with&out announce"
+msgstr "Marquée &sans annonce"
+
+#. Translators: An entry in the context menu Table Mode > Marked Columns
+#: addon\globalPlugins\tableHandler\gui\menu.py:143
+msgid "&Not marked"
+msgstr "&Non marquée"
+
+#. Translators: An entry in the Table Mode context menu
+#: addon\globalPlugins\tableHandler\gui\menu.py:149
+msgid "Marked Columns"
+msgstr "Colonnes marquées"
+
 #. Translators: An item in NVDA's Preferences menu
-#: addon\globalPlugins\tableHandler\gui\menu.py:134
-msgid "Table Mode &Preferences..."
-msgstr "&Paramètres du Mode Tableau..."
+#: addon\globalPlugins\tableHandler\gui\menu.py:158
+msgid "Table Mode Preferences..."
+msgstr "Paramètres du Mode Tableau..."
 
 #. Translators: The contextual help for an item in NVDA's Preferences menu
 #. Translators: The title of a dialog
-#: addon\globalPlugins\tableHandler\gui\menu.py:136
+#: addon\globalPlugins\tableHandler\gui\menu.py:160
 #: addon\globalPlugins\tableHandler\gui\settings.py:66
 #: addon\globalPlugins\tableHandler\gui\settings.py:90
 msgid "Table Mode Preferences"
 msgstr "Paramètres du Mode Tableau"
 
 #. Translators: A prompt to enter a value
-#: addon\globalPlugins\tableHandler\gui\menu.py:212
+#: addon\globalPlugins\tableHandler\gui\menu.py:233
 msgid "Enter a custom header for this column"
 msgstr "Entrez une entête personnalisée pour cette colonne"
 
 #. Translators: A prompt to enter a value
-#: addon\globalPlugins\tableHandler\gui\menu.py:236
+#: addon\globalPlugins\tableHandler\gui\menu.py:256
 msgid "Enter a custom header for this row"
 msgstr "Entrez une entête personnalisée pour cette ligne"
 
@@ -495,6 +515,11 @@ msgid ""
 "It can span multiple lines."
 msgstr ""
 
+#, fuzzy
+#~| msgid "Table Mode Preferences"
+#~ msgid "Table Mode &Preferences"
+#~ msgstr "Paramètres du Mode Tableau"
+
 #~ msgid "No announce"
 #~ msgstr "Ne rien annoncer"
 
@@ -526,9 +551,6 @@ msgstr ""
 
 #~ msgid "Other marked columns: "
 #~ msgstr "Autre colonnes marquées :"
-
-#~ msgid "Marked columns: "
-#~ msgstr "Colonnes marquées :"
 
 #~ msgid "Edge of table"
 #~ msgstr "Bordure de tableau"
