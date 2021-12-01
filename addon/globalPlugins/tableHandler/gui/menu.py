@@ -155,6 +155,35 @@ class Menu(wx.Menu):
 			item = self.AppendSubMenu(sub, label)
 			if rowHeaColNum == colNum:
 				self.Enable(item.Id, False)
+			
+			sub = wx.Menu()
+			
+			if colHeaRowNum != rowNum:
+				items = {}
+				
+				# Translators: An entry in the context menu Table Mode > Marked Rows
+				items[True] = item = sub.AppendRadioItem(wx.ID_ANY, _("Marked with &announce"))
+				self.Bind(wx.EVT_MENU, self.onToggleMarkedRow_WithAnnounce, item)
+				
+				# Translators: An entry in the context menu Table Mode > Marked Rows
+				items[False] = item = sub.AppendRadioItem(wx.ID_ANY, _("Marked with&out announce"))
+				self.Bind(wx.EVT_MENU, self.onToggleMarkedRow_WithoutAnnounce, item)
+				
+				# Translators: An entry in the context menu Table Mode > Marked Rows
+				items[None] = item = sub.AppendRadioItem(wx.ID_ANY, _("&Not marked"))
+				self.Bind(wx.EVT_MENU, self.onToggleMarkedRow_Unmarked, item)
+				
+				items[cfg["markedRowNumbers"].get(rowNum)].Check()
+			
+			# Translators: An entry in the Table Mode context menu
+			label = _("Marked Rows")
+			hint = getScriptGestureMenuHint(TableManager, TableManager.script_toggleMarkedRow)
+			if hint:
+				label += "\t{}".format(hint)
+			
+			item = self.AppendSubMenu(sub, label)
+			if colHeaRowNum == rowNum:
+				self.Enable(item.Id, False)
 		
 		item = self.Append(
 			wx.ID_ANY,
@@ -287,6 +316,30 @@ class Menu(wx.Menu):
 		num = cell.columnNumber
 		marked.pop(num, None)
 		cfg["markedColumnNumbers"] = marked
+	
+	def onToggleMarkedRow_WithAnnounce(self, evt):
+		cell = gui.mainFrame.prevFocus
+		cfg = cell.table._tableConfig
+		marked = cfg["markedRowNumbers"].copy()
+		num = cell.rowNumber
+		marked[num] = True
+		cfg["markedRowNumbers"] = marked
+	
+	def onToggleMarkedRow_WithoutAnnounce(self, evt):
+		cell = gui.mainFrame.prevFocus
+		cfg = cell.table._tableConfig
+		marked = cfg["markedRowNumbers"].copy()
+		num = cell.rowNumber
+		marked[num] = False
+		cfg["markedRowNumbers"] = marked
+	
+	def onToggleMarkedRow_Unmarked(self, evt):
+		cell = gui.mainFrame.prevFocus
+		cfg = cell.table._tableConfig
+		marked = cfg["markedRowNumbers"].copy()
+		num = cell.rowNumber
+		marked.pop(num, None)
+		cfg["markedRowNumbers"] = marked
 	
 	def onPreferences(self, evt):
 		if nvdaVersion >= (2018, 2):

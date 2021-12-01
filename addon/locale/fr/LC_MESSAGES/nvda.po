@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tableHandler 2021.09.17-dev\n"
 "Report-Msgid-Bugs-To: nvda-translations@groups.io\n"
-"POT-Creation-Date: 2021-11-30 11:14+0100\n"
-"PO-Revision-Date: 2021-11-30 11:15+0100\n"
+"POT-Creation-Date: 2021-12-01 08:09+0100\n"
+"PO-Revision-Date: 2021-12-01 08:13+0100\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: fr\n"
@@ -53,13 +53,13 @@ msgstr "comme entête de ligne"
 
 #. Translators: Announced when moving to a marked header cell
 #: addon\globalPlugins\tableHandler\behaviors.py:832
-#: addon\globalPlugins\tableHandler\behaviors.py:861
+#: addon\globalPlugins\tableHandler\behaviors.py:862
 msgid "with announce"
 msgstr "avec annonce"
 
 #. Translators: Announced when moving to a marked header cell
 #: addon\globalPlugins\tableHandler\behaviors.py:835
-#: addon\globalPlugins\tableHandler\behaviors.py:864
+#: addon\globalPlugins\tableHandler\behaviors.py:865
 msgid "without announce"
 msgstr "sans annonce"
 
@@ -75,28 +75,28 @@ msgid "1 column marked"
 msgstr "1 colonne marquée"
 
 #. Translators: Announced when moving to a marked header cell
-#: addon\globalPlugins\tableHandler\behaviors.py:850
+#: addon\globalPlugins\tableHandler\behaviors.py:851
 msgid "Row marked"
 msgstr "Ligne marquée"
 
 #. Translators: Announced when moving to a marked header cell
-#: addon\globalPlugins\tableHandler\behaviors.py:858
+#: addon\globalPlugins\tableHandler\behaviors.py:859
 msgid "as column header"
 msgstr "comme entête de colonne"
 
 #. Translators: Announced when moving to a header cell
-#: addon\globalPlugins\tableHandler\behaviors.py:868
+#: addon\globalPlugins\tableHandler\behaviors.py:869
 #, python-brace-format
 msgid "{count} rows marked"
 msgstr "{count} lignes marquées"
 
 #. Translators: Announced when moving to a header cell
-#: addon\globalPlugins\tableHandler\behaviors.py:871
+#: addon\globalPlugins\tableHandler\behaviors.py:872
 msgid "1 row marked"
 msgstr "1 ligne marquée"
 
 #. Translators: Reported when attempting to navigate table rows
-#: addon\globalPlugins\tableHandler\behaviors.py:955
+#: addon\globalPlugins\tableHandler\behaviors.py:959
 #: addon\globalPlugins\tableHandler\documents.py:1151
 msgid "No next matching row. Press escape to cancel filtering."
 msgstr ""
@@ -104,7 +104,7 @@ msgstr ""
 "le filtrage."
 
 #. Translators: Reported when attempting to navigate table rows
-#: addon\globalPlugins\tableHandler\behaviors.py:958
+#: addon\globalPlugins\tableHandler\behaviors.py:962
 #: addon\globalPlugins\tableHandler\documents.py:1154
 msgid "No previous matching row. Press escape to cancel filtering."
 msgstr ""
@@ -112,171 +112,216 @@ msgstr ""
 "le filtrage."
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:991
+#: addon\globalPlugins\tableHandler\behaviors.py:995
 msgid "Open the Table Mode context menu"
 msgstr "Ouvre le menu contextuel du Mode Tableau"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1012
+#: addon\globalPlugins\tableHandler\behaviors.py:1016
 msgid "Filter the table rows"
 msgstr "Filtrer les lignes du tableau"
 
 #. Translators: Announced when trying to apply a table filter with no matching row
-#: addon\globalPlugins\tableHandler\behaviors.py:1027
+#: addon\globalPlugins\tableHandler\behaviors.py:1031
 msgid "There is no row matching this filter"
 msgstr "Aucune ligne ne respecte ce filtre"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1041
+#: addon\globalPlugins\tableHandler\behaviors.py:1045
 msgid "Go to the first data cell"
 msgstr "Aller à la première cellule de données"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1066
+#: addon\globalPlugins\tableHandler\behaviors.py:1070
 msgid "Go to the first column"
 msgstr "Aller à la première colonne"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1084
+#: addon\globalPlugins\tableHandler\behaviors.py:1088
 msgid "Go to the last column"
 msgstr "Aller à la dernière colonne"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1091
+#: addon\globalPlugins\tableHandler\behaviors.py:1095
 msgid "Go to the next column"
 msgstr "Aller à la colonne suivante"
 
 #. Translators: Emitted when attempting to move to a marked column
-#: addon\globalPlugins\tableHandler\behaviors.py:1106
+#: addon\globalPlugins\tableHandler\behaviors.py:1111
 msgid "No next marked column"
 msgstr "Pas de colonne marquée suivante"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1112
+#: addon\globalPlugins\tableHandler\behaviors.py:1117
 msgid "Go to the next marked column"
 msgstr "Aller à la colonne marquée suivante"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1119
+#: addon\globalPlugins\tableHandler\behaviors.py:1124
 msgid "Go to the previous column"
 msgstr "Aller à la colonne marquée précédente"
 
 #. Translators: Emitted when attempting to move to a marked column
-#: addon\globalPlugins\tableHandler\behaviors.py:1131
+#: addon\globalPlugins\tableHandler\behaviors.py:1140
 msgid "No previous marked column"
 msgstr "Pas de colonne marquée précédente"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1137
+#: addon\globalPlugins\tableHandler\behaviors.py:1146
 msgid "Go to the previous marked column"
 msgstr "Aller à la colonne marquée précédente"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1144
+#: addon\globalPlugins\tableHandler\behaviors.py:1153
 msgid "Go to the first row"
 msgstr "Aller à la première ligne"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1166
+#: addon\globalPlugins\tableHandler\behaviors.py:1175
 msgid "Go to the last row"
 msgstr "Aller à la dernière ligne"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1173
+#: addon\globalPlugins\tableHandler\behaviors.py:1182
 msgid "Go to the next row"
 msgstr "Aller à la ligne suivante"
 
+#. Translators: Emitted when attempting to move to a marked row
+#: addon\globalPlugins\tableHandler\behaviors.py:1198
+msgid "No next marked row"
+msgstr "Pas de ligne marquée suivante"
+
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1180
+#: addon\globalPlugins\tableHandler\behaviors.py:1204
+msgid "Go to the next marked row"
+msgstr "Aller à la ligne marquée suivante"
+
+#. Translators: The description of a command.
+#: addon\globalPlugins\tableHandler\behaviors.py:1211
 msgid "Go to the previous row"
 msgstr "Aller à la ligne précédente"
 
+#. Translators: Emitted when attempting to move to a marked row
+#: addon\globalPlugins\tableHandler\behaviors.py:1227
+msgid "No previous marked row"
+msgstr "Pas de ligne marquée précédente"
+
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1187
+#: addon\globalPlugins\tableHandler\behaviors.py:1233
+msgid "Go to the previous marked row"
+msgstr "Aller à la ligne marquée précédente"
+
+#. Translators: The description of a command.
+#: addon\globalPlugins\tableHandler\behaviors.py:1240
 msgid "Select the current row, if supported"
 msgstr "Sélectionner la ligne en cours (si supporté)"
 
 #. Translators: Announced when customizing column headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1201
-#: addon\globalPlugins\tableHandler\gui\menu.py:178
-#: addon\globalPlugins\tableHandler\gui\menu.py:189
+#: addon\globalPlugins\tableHandler\behaviors.py:1256
+#: addon\globalPlugins\tableHandler\gui\menu.py:211
+#: addon\globalPlugins\tableHandler\gui\menu.py:222
 msgid "Column header reset to default: {}"
 msgstr "Entêtes de colonnes par défaut : {}"
 
 #. Translators: Announced when customizing column headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1205
-#: addon\globalPlugins\tableHandler\gui\menu.py:182
+#: addon\globalPlugins\tableHandler\behaviors.py:1260
+#: addon\globalPlugins\tableHandler\gui\menu.py:215
 msgid "Column header disabled"
 msgstr "Entête de colonne désactivée"
 
-#. marked[curNum] = None
 #. Translators: Announced when customizing column headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1210
-#: addon\globalPlugins\tableHandler\gui\menu.py:193
+#: addon\globalPlugins\tableHandler\behaviors.py:1265
+#: addon\globalPlugins\tableHandler\gui\menu.py:226
 msgid "Row set as column header"
 msgstr "Cette ligne est maintenant lue comme entête de colonne."
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1214
+#: addon\globalPlugins\tableHandler\behaviors.py:1270
 msgid "Set the current row as column header"
 msgstr "Utiliser la ligne en cours comme entête de colonne."
 
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1229
-#: addon\globalPlugins\tableHandler\gui\menu.py:204
-#: addon\globalPlugins\tableHandler\gui\menu.py:215
+#: addon\globalPlugins\tableHandler\behaviors.py:1286
+#: addon\globalPlugins\tableHandler\gui\menu.py:237
+#: addon\globalPlugins\tableHandler\gui\menu.py:248
 msgid "Row header reset to default: {}"
 msgstr "Entête de ligne par défaut : {}"
 
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1233
-#: addon\globalPlugins\tableHandler\gui\menu.py:208
+#: addon\globalPlugins\tableHandler\behaviors.py:1290
+#: addon\globalPlugins\tableHandler\gui\menu.py:241
 msgid "Row header disabled"
 msgstr "Entête de ligne désactivée"
 
 #. Translators: Reported when customizing row headers
 #. Translators: Announced when customizing row headers
-#: addon\globalPlugins\tableHandler\behaviors.py:1238
-#: addon\globalPlugins\tableHandler\gui\menu.py:219
+#: addon\globalPlugins\tableHandler\behaviors.py:1295
+#: addon\globalPlugins\tableHandler\gui\menu.py:252
 msgid "Column set as row header"
 msgstr "Cette colonne est maintenant lue comme entête de lignes."
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1243
+#: addon\globalPlugins\tableHandler\behaviors.py:1300
 msgid "Set the current column as row header"
 msgstr "Utiliser la colonne en cours comme entêtes de lignes."
 
 #. Translators: Reported when attempting to mark a column
-#: addon\globalPlugins\tableHandler\behaviors.py:1252
+#: addon\globalPlugins\tableHandler\behaviors.py:1309
 msgid "This column is already marked as row header."
 msgstr "Cette colonne est déjà marquée comme entête de lignes."
 
 #. Translators: The {command} portion of a script hint message
-#: addon\globalPlugins\tableHandler\behaviors.py:1257
+#: addon\globalPlugins\tableHandler\behaviors.py:1314
+#: addon\globalPlugins\tableHandler\behaviors.py:1356
 msgid "reset"
 msgstr "réinitialiser"
 
 #. Translators: Reported when toggling marked columns
-#: addon\globalPlugins\tableHandler\behaviors.py:1271
-msgid "Column {} marked without announce"
+#: addon\globalPlugins\tableHandler\behaviors.py:1328
+msgid "Column marked without announce"
 msgstr "Colonne marquée sans annonce"
 
 #. Translators: Reported when toggling marked columns
-#: addon\globalPlugins\tableHandler\behaviors.py:1276
-msgid "Column {} unmarked"
+#: addon\globalPlugins\tableHandler\behaviors.py:1333
+msgid "Column unmarked"
 msgstr "Colonne non marquée"
 
 #. Translators: Reported when toggling marked columns
-#: addon\globalPlugins\tableHandler\behaviors.py:1281
-msgid "Column {} marked with announce"
+#: addon\globalPlugins\tableHandler\behaviors.py:1338
+msgid "Column marked with announce"
 msgstr "Colonne marquée avec annonce"
 
 #. Translators: The description of a command.
-#: addon\globalPlugins\tableHandler\behaviors.py:1285
+#: addon\globalPlugins\tableHandler\behaviors.py:1342
 msgid "Toggle marked column"
 msgstr "Marquer une colonne"
+
+#. Translators: Reported when attempting to mark a row
+#: addon\globalPlugins\tableHandler\behaviors.py:1351
+msgid "This row is already marked as column header."
+msgstr "Cette ligne est déjà marquée comme entête de colonnes."
+
+#. Translators: Reported when toggling marked rows
+#: addon\globalPlugins\tableHandler\behaviors.py:1370
+msgid "Row marked without announce"
+msgstr "Ligne marquée sans annonce"
+
+#. Translators: Reported when toggling marked rows
+#: addon\globalPlugins\tableHandler\behaviors.py:1375
+msgid "Row unmarked"
+msgstr "Ligne non marquée"
+
+#. Translators: Reported when toggling marked rows
+#: addon\globalPlugins\tableHandler\behaviors.py:1380
+msgid "Row marked with announce"
+msgstr "Ligne marquée avec annonce"
+
+#. Translators: The description of a command.
+#: addon\globalPlugins\tableHandler\behaviors.py:1384
+msgid "Toggle marked row"
+msgstr "Marquer une ligne"
 
 #. Translators: Announced when switching to Table Mode
 #. Translators: The label for a category in the settings dialog
@@ -424,45 +469,56 @@ msgid "Row Headers"
 msgstr "Entêtes de ligne"
 
 #. Translators: An entry in the context menu Table Mode > Marked Columns
-#: addon\globalPlugins\tableHandler\gui\menu.py:135
+#. Translators: An entry in the context menu Table Mode > Marked Rows
+#: addon\globalPlugins\tableHandler\gui\menu.py:136
+#: addon\globalPlugins\tableHandler\gui\menu.py:165
 msgid "Marked with &announce"
 msgstr "Marquée avec &annonce"
 
 #. Translators: An entry in the context menu Table Mode > Marked Columns
-#: addon\globalPlugins\tableHandler\gui\menu.py:139
+#. Translators: An entry in the context menu Table Mode > Marked Rows
+#: addon\globalPlugins\tableHandler\gui\menu.py:140
+#: addon\globalPlugins\tableHandler\gui\menu.py:169
 msgid "Marked with&out announce"
 msgstr "Marquée &sans annonce"
 
 #. Translators: An entry in the context menu Table Mode > Marked Columns
-#: addon\globalPlugins\tableHandler\gui\menu.py:143
+#. Translators: An entry in the context menu Table Mode > Marked Rows
+#: addon\globalPlugins\tableHandler\gui\menu.py:144
+#: addon\globalPlugins\tableHandler\gui\menu.py:173
 msgid "&Not marked"
 msgstr "&Non marquée"
 
 #. Translators: An entry in the Table Mode context menu
-#: addon\globalPlugins\tableHandler\gui\menu.py:149
+#: addon\globalPlugins\tableHandler\gui\menu.py:150
 msgid "Marked Columns"
 msgstr "Colonnes marquées"
 
+#. Translators: An entry in the Table Mode context menu
+#: addon\globalPlugins\tableHandler\gui\menu.py:179
+msgid "Marked Rows"
+msgstr "Lignes marquées"
+
 #. Translators: An item in NVDA's Preferences menu
-#: addon\globalPlugins\tableHandler\gui\menu.py:158
+#: addon\globalPlugins\tableHandler\gui\menu.py:191
 msgid "Table Mode Preferences..."
 msgstr "Paramètres du Mode Tableau..."
 
 #. Translators: The contextual help for an item in NVDA's Preferences menu
 #. Translators: The title of a dialog
-#: addon\globalPlugins\tableHandler\gui\menu.py:160
+#: addon\globalPlugins\tableHandler\gui\menu.py:193
 #: addon\globalPlugins\tableHandler\gui\settings.py:66
 #: addon\globalPlugins\tableHandler\gui\settings.py:90
 msgid "Table Mode Preferences"
 msgstr "Paramètres du Mode Tableau"
 
 #. Translators: A prompt to enter a value
-#: addon\globalPlugins\tableHandler\gui\menu.py:233
+#: addon\globalPlugins\tableHandler\gui\menu.py:266
 msgid "Enter a custom header for this column"
 msgstr "Entrez une entête personnalisée pour cette colonne"
 
 #. Translators: A prompt to enter a value
-#: addon\globalPlugins\tableHandler\gui\menu.py:256
+#: addon\globalPlugins\tableHandler\gui\menu.py:289
 msgid "Enter a custom header for this row"
 msgstr "Entrez une entête personnalisée pour cette ligne"
 
@@ -514,6 +570,12 @@ msgid ""
 "Description for the add-on.\n"
 "It can span multiple lines."
 msgstr ""
+
+#~ msgid "Column {} unmarked"
+#~ msgstr "Colonne non marquée"
+
+#~ msgid "Row {} unmarked"
+#~ msgstr "Ligne {} marquée"
 
 #, fuzzy
 #~| msgid "Table Mode Preferences"

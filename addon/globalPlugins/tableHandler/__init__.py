@@ -251,6 +251,7 @@ class TableConfig(object):
 		"customRowHeaders": {},
 		"customColumnHeaders": {},
 		"markedColumnNumbers": {},
+		"markedRowNumbers": {},
 		"firstDataRowNumber": None,
 		"firstDataColumnNumber": None
 	}
@@ -332,7 +333,8 @@ class TableConfig(object):
 				"customColumnHeaders",
 				"customRowHeaders",
 				"defaultColumnWidthByDisplaySize",
-				"markedColumnNumbers"
+				"markedColumnNumbers",
+				"markedRowNumbers"
 			):
 				if key in data:
 					data[key] = {int(key): value for key, value in data[key].items()}

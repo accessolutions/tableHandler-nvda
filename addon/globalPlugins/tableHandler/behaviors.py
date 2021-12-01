@@ -843,7 +843,8 @@ class TableManager(ScriptableObject):
 					content.append(_("1 column marked"))
 		if inRowHeader:
 			# TODO: Implement marked rows
-			marked = {headerRowNum: False} if isinstance(headerRowNum, int) else {}
+			#marked = {headerRowNum: False} if isinstance(headerRowNum, int) else {}
+			marked = cfg["markedRowNumbers"]
 			if curRowNum in marked:
 				if axis == AXIS_COLUMNS or curRowNum != headerRowNum:
 					# Translators: Announced when moving to a marked header cell
@@ -871,17 +872,20 @@ class TableManager(ScriptableObject):
 					content.append(_("1 row marked"))
 		if not inHeader:
 			if axis == AXIS_COLUMNS:
-				marked = []  # TODO: Implement marked rows
+				marked = sorted([
+					num for num, announce in cfg["markedRowNumbers"].items()
+					if announce and num not in (curRowNum, headerRowNum)
+				])
 			else:
 				# The following `sorted` leads to announcing in natural columns order
 				# rather than in the order of which the columns were marked.
 				# TODO: Make marked columns announce order configurable?
 				marked = sorted([
-					colNum for colNum, announce in cfg["markedColumnNumbers"].items()
-					if announce and colNum not in (curColNum, headerColNum)
+					num for num, announce in cfg["markedColumnNumbers"].items()
+					if announce and num not in (curColNum, headerColNum)
 				])
-			for colNum in marked:
-				appendCell(colNum)
+			for num in marked:
+				appendCell(num)
 		
 		for part in content:
 			if isinstance(part, string_types):
@@ -1091,20 +1095,21 @@ class TableManager(ScriptableObject):
 	script_moveToNextColumn.__doc__ = _("Go to the next column")
 	
 	def script_moveToNextMarkedColumn(self, gesture):
-		columnNumber = self._currentColumnNumber
-		if not columnNumber:
+		cell = self._currentCell
+		if not cell:
 			ui.message(translate("Not in a table cell"))
 			return
-		curColIsMarked = False
+		num = cell.columnNumber
+		isMarked = False
 		for marked in sorted(self._tableConfig["markedColumnNumbers"]):
-			if marked > columnNumber:
+			if marked > num:
 				self._moveToColumn(marked)
 				return
-			if marked == columnNumber:
-				curColIsMarked = True
+			if marked == num:
+				isMarked = True
 		# Translators: Emitted when attempting to move to a marked column
 		speech.speakMessage(_("No next marked column"))
-		if curColIsMarked:
+		if isMarked:
 			self._reportColumnChange()
 	
 	script_moveToNextMarkedColumn.canPropagate = True
@@ -1119,17 +1124,21 @@ class TableManager(ScriptableObject):
 	script_moveToPreviousColumn.__doc__ = _("Go to the previous column")
 	
 	def script_moveToPreviousMarkedColumn(self, gesture):
-		columnNumber = self._currentColumnNumber
-		curColIsMarked = False
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		num = cell.columnNumber
+		isMarked = False
 		for marked in reversed(sorted(self._tableConfig["markedColumnNumbers"])):
-			if marked < columnNumber:
+			if marked < num:
 				self._moveToColumn(marked)
 				return
-			if marked == columnNumber:
-				curColIsMarked = True
+			if marked == num:
+				isMarked = True
 		# Translators: Emitted when attempting to move to a marked column
 		speech.speakMessage(_("No previous marked column"))
-		if curColIsMarked:
+		if isMarked:
 			self._reportColumnChange()
 	
 	script_moveToPreviousMarkedColumn.canPropagate = True
@@ -1172,12 +1181,56 @@ class TableManager(ScriptableObject):
 	# Translators: The description of a command.
 	script_moveToNextRow.__doc__ = _("Go to the next row")
 	
+	def script_moveToNextMarkedRow(self, gesture):
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		num = cell.rowNumber
+		isMarked = False
+		for marked in sorted(self._tableConfig["markedRowNumbers"]):
+			if marked > num:
+				self._moveToRow(marked)
+				return
+			if marked == num:
+				isMarked = True
+		# Translators: Emitted when attempting to move to a marked row
+		speech.speakMessage(_("No next marked row"))
+		if isMarked:
+			self._reportRowChange()
+	
+	script_moveToNextMarkedRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToNextMarkedRow.__doc__ = _("Go to the next marked row")
+	
 	def script_moveToPreviousRow(self, gesture):
 		self._tableMovementScriptHelper(AXIS_ROWS, DIRECTION_PREVIOUS)
 	
 	script_moveToPreviousRow.canPropagate = True
 	# Translators: The description of a command.
 	script_moveToPreviousRow.__doc__ = _("Go to the previous row")
+	
+	def script_moveToPreviousMarkedRow(self, gesture):
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		num = cell.rowNumber
+		isMarked = False
+		for marked in reversed(sorted(self._tableConfig["markedRowNumbers"])):
+			if marked < num:
+				self._moveToRow(marked)
+				return
+			if marked == num:
+				isMarked = True
+		# Translators: Emitted when attempting to move to a marked row
+		speech.speakMessage(_("No previous marked row"))
+		if isMarked:
+			self._reportRowChange()
+	
+	script_moveToPreviousMarkedRow.canPropagate = True
+	# Translators: The description of a command.
+	script_moveToPreviousMarkedRow.__doc__ = _("Go to the previous marked row")
 	
 	def script_selectRow(self, gesture):  # TODO
 		raise NotImplementedError()
@@ -1187,52 +1240,56 @@ class TableManager(ScriptableObject):
 	script_selectRow.__doc__ = _("Select the current row, if supported")
 	
 	def script_setColumnHeader(self, gesture):
-		headerNum = self._tableConfig["columnHeaderRowNumber"]
-		curNum = self._currentRowNumber
-		#marked = self._markedRowNumbers
-		#marked.pop(curNum, None)
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		curNum = cell.rowNumber
+		cfg = self._tableConfig
+		headerNum = cfg["columnHeaderRowNumber"]
+		marked = cfg["markedRowNumbers"]
+		marked.pop(headerNum, None)
 		if headerNum == curNum:
-			self._tableConfig["columnHeaderRowNumber"] = None
-			try:
-				headerText = self._currentCell.columnHeaderText
-			except NotImplementedError:
-				headerText = ""
+			cfg["columnHeaderRowNumber"] = None
+			headerText = getColumnHeaderTextSafe(cell)
 			# Translators: Announced when customizing column headers
 			ui.message(_("Column header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
-			self._tableConfig["columnHeaderRowNumber"] = False
+			cfg["columnHeaderRowNumber"] = False
 			# Translators: Announced when customizing column headers
 			ui.message(_("Column header disabled"))
 		else:
-			self._tableConfig["columnHeaderRowNumber"] = curNum
-			#marked[curNum] = None
+			cfg["columnHeaderRowNumber"] = curNum
+			marked[curNum] = None
 			# Translators: Announced when customizing column headers
 			ui.message(_("Row set as column header"))
+		cfg["markedRowNumbers"] = marked
 	
 	script_setColumnHeader.canPropagate = True
 	# Translators: The description of a command.
 	script_setColumnHeader.__doc__ = _("Set the current row as column header")
 	
 	def script_setRowHeader(self, gesture):
-		headerNum = self._tableConfig["rowHeaderColumnNumber"]
-		curNum = self._currentColumnNumber
+		cell = self._currentCell
+		if not cell:
+			ui.message(translate("Not in a table cell"))
+			return
+		curNum = cell.columnNumber
 		cfg = self._tableConfig
+		headerNum = cfg["rowHeaderColumnNumber"]
 		marked = cfg["markedColumnNumbers"]
 		marked.pop(headerNum, None)
 		if headerNum == curNum:
-			self._tableConfig["rowHeaderColumnNumber"] = None
-			try:
-				headerText = self._currentCell.rowHeaderText
-			except NotImplementedError:
-				headerText = ""
+			cfg["rowHeaderColumnNumber"] = None
+			headerText = getRowHeaderTextSafe(cell)
 			# Translators: Reported when customizing row headers
 			ui.message(_("Row header reset to default: {}").format(headerText))
 		elif getLastScriptUntimedRepeatCount() > 0 and headerNum is None:
-			self._tableConfig["rowHeaderColumnNumber"] = False
+			cfg["rowHeaderColumnNumber"] = False
 			# Translators: Reported when customizing row headers
 			ui.message(_("Row header disabled"))
 		else:
-			self._tableConfig["rowHeaderColumnNumber"] = curNum
+			cfg["rowHeaderColumnNumber"] = curNum
 			marked[curNum] = None
 			# Translators: Reported when customizing row headers
 			ui.message(_("Column set as row header"))
@@ -1243,11 +1300,11 @@ class TableManager(ScriptableObject):
 	script_setRowHeader.__doc__ = _("Set the current column as row header")
 	
 	def script_toggleMarkedColumn(self, gesture):
-		curColNum = self._currentColumnNumber
-		if not curColNum:
-			ui.message(translate("Noe in a table cell"))
+		num = self._currentColumnNumber
+		if not num:
+			ui.message(translate("Not in a table cell"))
 			return
-		if curColNum == self._tableConfig["rowHeaderColumnNumber"]:
+		if num == self._tableConfig["rowHeaderColumnNumber"]:
 			# Translators: Reported when attempting to mark a column
 			msg = _("This column is already marked as row header.")
 			hint = getScriptGestureTutorMessage(
@@ -1262,28 +1319,70 @@ class TableManager(ScriptableObject):
 			return
 		cfg = self._tableConfig
 		marked = cfg["markedColumnNumbers"]
-		if curColNum in marked:
-			announce = marked[curColNum]
+		if num in marked:
+			announce = marked[num]
 			if announce:
-				marked[curColNum] = False
+				marked[num] = False
 				cfg["markedColumnNumbers"] = marked
 				# Translators: Reported when toggling marked columns
-				ui.message(_("Column {} marked without announce").format(curColNum))
+				ui.message(_("Column marked without announce"))
 				return
-			del marked[curColNum]
+			del marked[num]
 			cfg["markedColumnNumbers"] = marked
 			# Translators: Reported when toggling marked columns
-			ui.message(_("Column {} unmarked").format(curColNum))
+			ui.message(_("Column unmarked"))
 			return
-		marked[curColNum] = True
+		marked[num] = True
 		cfg["markedColumnNumbers"] = marked
 		# Translators: Reported when toggling marked columns
-		ui.message(_("Column {} marked with announce").format(curColNum))
+		ui.message(_("Column marked with announce"))
 	
 	script_toggleMarkedColumn.canPropagate = True
 	# Translators: The description of a command.
 	script_toggleMarkedColumn.__doc__ = _("Toggle marked column")
-		
+	
+	def script_toggleMarkedRow(self, gesture):
+		num = self._currentRowNumber
+		if not num:
+			ui.message(translate("Not in a table cell"))
+			return
+		if num == self._tableConfig["rowHeaderRowNumber"]:
+			# Translators: Reported when attempting to mark a row
+			msg = _("This row is already marked as column header.")
+			hint = getScriptGestureTutorMessage(
+				TableManager,
+				self.script_setRowHeader,
+				# Translators: The {command} portion of a script hint message
+				doc=_("reset")
+			)
+			if hint:
+				msg += " " + hint
+			ui.message(msg)
+			return
+		cfg = self._tableConfig
+		marked = cfg["markedRowNumbers"]
+		if num in marked:
+			announce = marked[num]
+			if announce:
+				marked[num] = False
+				cfg["markedRowNumbers"] = marked
+				# Translators: Reported when toggling marked rows
+				ui.message(_("Row marked without announce"))
+				return
+			del marked[num]
+			cfg["markedRowNumbers"] = marked
+			# Translators: Reported when toggling marked rows
+			ui.message(_("Row unmarked"))
+			return
+		marked[num] = True
+		cfg["markedRowNumbers"] = marked
+		# Translators: Reported when toggling marked rows
+		ui.message(_("Row marked with announce"))
+	
+	script_toggleMarkedRow.canPropagate = True
+	# Translators: The description of a command.
+	script_toggleMarkedRow.__doc__ = _("Toggle marked row")
+
 	__gestures = {
 		"kb:applications": "contextMenu",
 		"kb:upArrow": "moveToPreviousRow",
@@ -1296,11 +1395,12 @@ class TableManager(ScriptableObject):
 		"kb:control+end": "moveToLastRow",
 		"kb:control+leftArrow": "moveToPreviousMarkedColumn",
 		"kb:control+rightArrow": "moveToNextMarkedColumn",
-		"kb:control+upArrow": "moveToFirstRow",
-		"kb:control+downArrow": "moveToLastRow",
+		"kb:control+upArrow": "moveToPreviousMarkedRow",
+		"kb:control+downArrow": "moveToNextMarkedRow",
 		"kb:NVDA+shift+c": "setColumnHeader",
 		"kb:NVDA+shift+r": "setRowHeader",
 		"kb:control+space": "toggleMarkedColumn",
+		"kb:control+shift+space": "toggleMarkedRow",
 		"kb:shift+space": "selectRow",
 		"kb:control+c": "copyToClipboard",
 		"kb:control+f": "filter"
