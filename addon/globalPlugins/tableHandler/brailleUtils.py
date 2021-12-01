@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.10"
+__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -117,13 +117,10 @@ def brailleCellIntegerToUnicode(value):
 
 
 def brailleCellsIntegersToUnicode(ints):
-	parts = []
-	for value in ints:
-		try:
-			parts.insert(0, brailleCellIntegerToUnicode(value))
-		except ValueError as e:
-			if sys.version_info[0] == 3:
-				raise ValueError(decs) from e
-			else:
-				raise ValueError(decs)
-	return "".join(parts)
+	try:
+		return "".join((brailleCellIntegerToUnicode(value) for value in ints))
+	except ValueError as e:
+		if sys.version_info[0] == 3:
+			raise ValueError(decs) from e
+		else:
+			raise ValueError(decs)
