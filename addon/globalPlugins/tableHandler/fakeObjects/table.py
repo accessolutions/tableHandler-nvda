@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.29"
+__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -34,12 +34,14 @@ import threading
 import time
 import weakref
 
+from NVDAObjects import NVDAObject
 import addonHandler
 import api
 import braille
 import config
 import controlTypes
 from logHandler import log
+from scriptHandler import getLastScriptRepeatCount
 import speech
 import textInfos
 import textInfos.offsets
@@ -141,6 +143,19 @@ class FakeCell(Cell, FakeObject):
 	
 	def _get_rowNumber(self):
 		return self.row.rowNumber
+	
+	def script_reportCurrentFocus(self, gesture):
+		if getLastScriptRepeatCount() == 0:
+			self.reportFocus()
+		elif getLastScriptRepeatCount() == 1:
+			# Translators: Announced when reporting system focus
+			speech.speakMessage(_("System focus"))
+			obj = NVDAObject.objectWithFocus()
+			obj.reportFocus()
+		#elif getLastScriptRepeatCount() == 2:
+		#	cellBk = self.info.bookmark
+		#	selBk = self.ti.selection.bookmark
+		#	speech.speakMessage(f"cell {cellBk.startOffset} caret {selBk.startOffset}")
 
 
 class ResizingCell(FakeObject):

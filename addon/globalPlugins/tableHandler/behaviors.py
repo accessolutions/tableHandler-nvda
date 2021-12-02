@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.19"
+__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -451,6 +451,16 @@ class Cell(ScriptableObject):
 			needle = needle.casefold()
 		return needle in haystack
 	
+	def reportFocus(self):
+		speech.speakMessage(
+			# Translators: Announced when reporting the table cell with focus
+			_("Table cell row {row} column {column}").format(
+				row=self.rowHeaderText or self.rowNumber,
+				column=self.columnHeaderText or self.columnNumber,
+				containing=self.basicText
+			)
+		)
+	
 	def _isEqual(self, obj):
 		try:
 			return (
@@ -493,8 +503,12 @@ class Cell(ScriptableObject):
 	# Translators: The description of a command.
 	script_modifyColumnWidthBraille.__doc__ = _("Set the width of the current column in braille")
 	
+	def script_reportCurrentFocus(self, gesture):
+		self.reportFocus()
+	
 	__gestures = {
-		"kb:NVDA+control+shift+l": "modifyColumnWidthBraille"
+		"kb:NVDA+control+shift+l": "modifyColumnWidthBraille",
+		"kb:NVDA+tab": "reportCurrentFocus"
 	}
 
 
