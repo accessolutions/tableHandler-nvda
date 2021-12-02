@@ -917,10 +917,15 @@ class TableManager(ScriptableObject):
 
 	@speechUnmutedFunction
 	def _reportFocusEntered(self):
-		#speech.cancelSpeech()
 		if not self._shouldReportNextFocusEntered:
 			self._shouldReportNextFocusEntered = True
 			return
+		speech.cancelSpeech()
+		rowCount = self.rowCount
+		if rowCount is not None:
+			speech.speakMessage(_("Table with {rowCount} rows").format(rowCount=rowCount))
+		else:
+			speech.speakMessage(translate("table"))
 		self._reportColumnChange()
 	
 	def _reportRowChange(self):
