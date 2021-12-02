@@ -83,6 +83,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		terminate()
 	
 	def event_gainFocus(self, obj, nextHandler):
+		#log.info(f"event_gainFocus({obj!r}({id(obj)}))")
 		from .documents import DocumentFakeCell
 		focus = api.getFocusObject()
 		if isinstance(focus, DocumentFakeCell):

@@ -358,11 +358,8 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 					and before.compareEndPoints(after, "endToEnd") == 0
 					and not ti.passThrough
 				):
-					#log.info(f"No movement, restoring TABLE_MODE ({before._startOffset} / {after._startOffset}")
-					#ti.passThrough = TABLE_MODE
 					table = ti._currentTable
 					if table:
-						#log.info("setting _shouldReportNextFocusEntered False")
 						table._shouldReportNextFocusEntered = False
 					queueCall(setattr, ti, "passThrough", TABLE_MODE)
 					queueCall(reportPassThrough, ti)
@@ -394,7 +391,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def _set_passThrough(self, state):
 		if self._passThrough == state:
 			return
-		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(True or state is True))
+		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(False and state is True))
 		if state == TABLE_MODE:
 			table = self._currentTable
 			if (
@@ -463,7 +460,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	def _set_selection(self, info, reason=REASON_CARET):
 		#log.info(f"_set_selection({id(self)}, {info._startOffset}, {reason})", stack_info=reason == REASON_FOCUS)
-		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=True)
+		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=False)
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
 				super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=REASON_CARET)
@@ -607,6 +604,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		the applications key to open the context menu. In these cases, this method
 		is called first to sync the focus to the browse mode cursor.
 		"""
+		#log.info(f"sel: {self.selection.bookmark}")
 		obj = self.currentFocusableNVDAObject
 		#if obj!=self.rootNVDAObject and self._shouldSetFocusToObj(obj) and obj!= api.getFocusObject():
 		if obj!=self.rootNVDAObject and self._shouldSetFocusToObj(obj):
@@ -619,6 +617,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				# Therefore, we must cache properties for speech before the change occurs.
 				speech.speakObject(obj, REASON_ONLYCACHE)
 				self._objPendingFocusBeforeActivate = obj
+			#else:
+			#	log.info(f"obj {obj.role!r} {getObjId(obj)} == focus {focus.role!r} {getObjId(focus)}")
+			#log.info(f"obj: {obj.treeInterceptor.makeTextInfo(obj).bookmark}")
+			#log.info(f"focus: {focus.treeInterceptor.makeTextInfo(focus).bookmark}")
 		if activatePosition:
 			# Make sure we activate the object at the caret, which is not necessarily focusable.
 			self._activatePosition()
@@ -667,6 +669,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		)
 	
 	def _handleUpdate(self):
+		#log.info("_handleUpdate")
 		super(TableHandlerTreeInterceptor, self)._handleUpdate()
 		if self.passThrough != TABLE_MODE:
 			return
@@ -711,7 +714,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 
 			focus = api.getFocusObject()
 			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
+				#log.info(f"_handleUpdate() focusing {cell!r}")
 				api.setFocusObject(cell)
+				braille.handler.handleGainFocus(cell)
+				brailleInput.handler.handleGainFocus(cell)
+				vision.handler.handleGainFocus(cell)
 				#cell.setFocus()
 				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
 				#table._shouldReportNextFocusEntered = False
@@ -732,7 +739,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		self._tableManagers.clear()
 	
 	def event_gainFocus(self, obj, nextHandler):
-		#log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r}")
+		#log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r} focus={api.getFocusObject()!r}")
 		if self.passThrough == TABLE_MODE:
 			try:
 				with speechMuted():
@@ -896,11 +903,14 @@ class DocumentFakeObject(FakeObject):
 		if obj and obj is not self:
 			obj.setFocus()
 			return
-		api.setFocusObject(self)
+		if not api.setFocusObject(self):
+			raise Exception("Could not set focus to {!r}".format(self))
 		import globalVars
+		#log.info(f"fdl={globalVars.focusDifferenceLevel}, ancestors={globalVars.focusAncestors}, parents={globalVars.focusAncestors[globalVars.focusDifferenceLevel:]}, tableInAnc={getattr(self, 'table', None) in globalVars.focusAncestors}")
 		for parent in globalVars.focusAncestors[globalVars.focusDifferenceLevel:]:
 			if not isinstance(parent, DocumentFakeObject):
 				continue
+			#log.info(f"entering {parent!r}")
 			eventHandler.executeEvent("focusEntered", parent)
 		self.event_gainFocus()
 
@@ -932,10 +942,16 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 	
 	def event_gainFocus(self):
 		#log.info(f"event_gainFocus({self!r}) at {self.info.bookmark}")
+		focus = api.getFocusObject()
+		if self is not focus:
+			log.error(f"event_gainFocus({self!r}) while focus={focus!r}")
+			return
+		
+		table = self.table
+		ti = table.ti
 		sel = self.info.copy()
 		sel.collapse()
-		table = self.table
-		table.ti._set_selection(sel, reason=REASON_TABLE_MODE)
+		ti._set_selection(sel, reason=REASON_TABLE_MODE)
 		table._currentRowNumber = self.rowNumber
 		table._currentColumnNumber = self.columnNumber
 		super(DocumentFakeCell, self).event_gainFocus()	
@@ -1080,8 +1096,29 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	def _canCreateRow(self, rowNumber):
 		return True
 	
+	def _isEqual(self, obj):
+		return (self is obj or (
+			isinstance(obj, type(self))
+			and self.ti == obj.ti
+			and self.tableID == obj.tableID
+		))
+	
 	def _iterCellsTextInfos(self, rowNumber):
 		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)
+	
+	@catchAll(log)
+	def _onTableFilterChange(self, text=None, caseSensitive=None):
+		focus = api.getFocusObject()
+		if isinstance(focus, DocumentFakeCell):
+			table = focus.table
+			if table is not self and self == table:
+				# The previously focused table has most likely been replaced after an update
+				# of the virtual buffer as the focus re-entered the document.
+				table._onTableFilterChange(text=text, caseSensitive=caseSensitive)
+				return
+		super(DocumentTableManager, self)._onTableFilterChange(
+			text=text, caseSensitive=caseSensitive
+		)
 	
 	def _setPosition(self, info):
 		#log.info(f"_setPosition({info._startOffset})", stack_info=True)

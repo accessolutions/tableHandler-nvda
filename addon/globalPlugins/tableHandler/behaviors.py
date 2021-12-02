@@ -49,12 +49,12 @@ import vision
 from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepeatCount
 from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
 
-from .coreUtils import queueCall, translate
 from .brailleUtils import (
 	TabularBrailleBuffer,
 	brailleCellsDecimalStringToIntegers,
 	brailleCellsIntegersToUnicode
 )
+from .coreUtils import catchAll, queueCall, translate
 from .fakeObjects import FakeObject
 from .scriptUtils import getScriptGestureTutorMessage
 from .tableUtils import (
@@ -720,6 +720,7 @@ class TableManager(ScriptableObject):
 		queueCall(self._reportRowChange)
 		return True
 	
+	@catchAll(log)
 	def _onTableFilterChange(self, text=None, caseSensitive=None):
 		speech.cancelSpeech()
 		if not text:
@@ -728,7 +729,10 @@ class TableManager(ScriptableObject):
 		self.filterText = text
 		self.filterCaseSensitive = caseSensitive
 		if text:
-			self.script_moveToFirstDataCell(None)	
+			self._shouldReportNextFocusEntered = False
+			self.script_moveToFirstDataCell(None)
+			# It is faster to reset than to check if we needed to prevent reporting at all
+			self._shouldReportNextFocusEntered = True
 	
 	@speechUnmutedFunction
 	def _reportCellChange(self, axis=AXIS_COLUMNS):
