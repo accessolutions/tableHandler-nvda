@@ -1032,7 +1032,7 @@ class TableManager(ScriptableObject):
 	
 	def script_filter(self, gesture):
 		from .gui import filter
-		filter.show(self, self.filterText, self.filterCaseSensitive)
+		filter.show(self)
 	
 	script_filter.canPropagate = True
 	# Translators: The description of a command.

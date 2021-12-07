@@ -593,6 +593,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 		res = super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
 # 		if self.passThrough == FOCUS_MODE_FROM_TABLE_MODE:
 # 			return FOCUS_MODE_FROM_TABLE_MODE
+
 # 		return res
 	
 	def _focusLastFocusableObject(self, activatePosition=False):
@@ -801,7 +802,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToNextColumn(gesture)
 			return
-		super(BrowseModeDocumentTreeInterceptor, self).script_nextColumn(gesture)
+		super(TableHandlerTreeInterceptor, self).script_nextColumn(gesture)
 	
 	script_nextColumn.disableTableModeBefore = False
 	
@@ -812,7 +813,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToPreviousColumn(gesture)
 			return
-		super(BrowseModeDocumentTreeInterceptor, self).script_previousColumn(gesture)
+		super(TableHandlerTreeInterceptor, self).script_previousColumn(gesture)
 	
 	script_previousColumn.disableTableModeBefore = False
 	
@@ -822,7 +823,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			self.passThrough = TABLE_MODE
 			reportPassThrough(self)
 			return
-		super(BrowseModeDocumentTreeInterceptor, self).script_disablePassThrough(gesture)
+		super(TableHandlerTreeInterceptor, self).script_disablePassThrough(gesture)
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextRow)
 	def script_nextRow(self, gesture):
@@ -830,7 +831,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 # 			return
-		super(BrowseModeDocumentTreeInterceptor, self).script_nextRow(gesture)
+		super(TableHandlerTreeInterceptor, self).script_nextRow(gesture)
 	
 	script_nextRow.disableTableModeBefore = False
 	
@@ -840,7 +841,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 # 			return
-		super(BrowseModeDocumentTreeInterceptor, self).script_previousRow(gesture)
+		super(TableHandlerTreeInterceptor, self).script_previousRow(gesture)
 	
 	script_previousRow.disableTableModeBefore = False
 	

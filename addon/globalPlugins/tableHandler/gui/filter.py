@@ -24,7 +24,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.22"
+__version__ = "2021.12.02"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 
 
@@ -56,15 +56,15 @@ addonHandler.initTranslation()
 
 
 @wx_CallAfter
-def show(table, text, caseSensitive):
+def show(table):
 	gui.mainFrame.prePopup()
-	FilterDialog(table, text, caseSensitive).ShowModal()
+	FilterDialog(table).ShowModal()
 	gui.mainFrame.postPopup()
 
 
 class FilterDialog(wx.Dialog):
 	
-	def __init__(self, table, text, caseSensitive):
+	def __init__(self, table):
 		# Translators: Table Filter Dialog title
 		super().__init__(gui.mainFrame, title=_("Filter"))
 
@@ -78,13 +78,13 @@ class FilterDialog(wx.Dialog):
 			_("Review only the table rows containing this text:"),
 			wx.TextCtrl
 		)
-		item.Value = text or ""
+		item.Value = table.filterText or ""
 		
 		item = self.caseSensitive = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=translate("Case &sensitive"))
 		)
-		item.Value = caseSensitive if caseSensitive is not None else False
+		item.Value = caseSensitive if table.filterCaseSensitive is not None else False
 		
 		sHelper.addDialogDismissButtons(self.CreateButtonSizer(wx.OK | wx.CANCEL))
 		mainSizer.Add(sHelper.sizer, border=guiHelper.BORDER_FOR_DIALOGS, flag=wx.ALL)
@@ -99,7 +99,6 @@ class FilterDialog(wx.Dialog):
 		table = self.table
 		text = self.text.Value
 		caseSensitive = self.caseSensitive.Value
-		#table._shouldReportNextFocusEntered = False
 		callLater(
 			100,
 			table._onTableFilterChange,
@@ -109,5 +108,4 @@ class FilterDialog(wx.Dialog):
 		self.Destroy()
 
 	def onCancel(self, evt):
-		#self.table._shouldReportNextFocusEntered = False
 		self.Destroy()
