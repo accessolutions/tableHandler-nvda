@@ -234,11 +234,16 @@ def reportPassThrough(treeInterceptor, onlyIfChanged=True):
 	if treeInterceptor.passThrough == TABLE_MODE:
 		if browseMode_reportPassThrough.last is not treeInterceptor.passThrough:
 			if config.conf["virtualBuffers"]["passThroughAudioIndication"]:
-				nvwave.playWaveFile(os.path.join(
-					os.path.dirname(__file__),
-					r"..\..\waves",
-					"tableMode.wav"
-				))
+				filePath = os.path.join(os.path.dirname(__file__), r"..\..\waves", "tableMode.wav")
+				if os.path.isfile(filePath):
+					nvwave.playWaveFile(filePath)
+				elif not getattr(reportPassThrough, "missingTableModeWaveFileLogged", False):
+					try:
+						filePath = os.path.realpath(filePath)
+					except Exception:
+						pass
+					log.error("Missing wave file: {}".format(filePath))
+					reportPassThrough.missingTableModeWaveFileLogged = True
 			else:
 				# Translators: Announced when switching to Table Mode
 				speech.speakMessage(_("Table Mode"))
