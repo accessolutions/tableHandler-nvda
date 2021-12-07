@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.12"
+__version__ = "2021.12.07"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -41,7 +41,7 @@ from globalPlugins.withSpeechMuted import speechMuted
 
 from . import TableConfig, getTableConfig, getTableConfigKey, getTableManager
 from .coreUtils import Break
-from .documents import DocumentTableHandler, TableHandlerTreeInterceptorScriptWrapper
+from .documents import DocumentTableHandler, DocumentTableManager, TableHandlerTreeInterceptorScriptWrapper
 from .scriptUtils import overrides
 
 
@@ -66,7 +66,7 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	def __init__(self):
 		super(TableHandlerWebModule, self).__init__()
 		self.tableConfigs = weakref.WeakValueDictionary()
-		self.tableIDs = {}
+		self.tableIDs = weakref.WeakValueDictionary()
 	
 	def __getattribute__(self, name):
 		value = super(TableHandlerWebModule, self).__getattribute__(name)
@@ -165,6 +165,16 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 					break
 			else:
 				result = None
+		if result:
+			cls = kwargs.get("tableClass")
+			if not cls:
+				cls = getattr(result, "TableClass", None)
+			if not cls:
+				cls = getattr(result.rule, "TableClass", None)
+			if not cls:
+				cls = getattr(self, "TableClass", None)
+			if cls:
+				kwargs["tableClass"] = cls
 		if not kwargs.get("tableConfig"):
 			if not kwargs.get("tableConfigKey"):
 				kwargs["tableConfigKey"]  = tableConfigKey = getTableConfigKey(**kwargs)
@@ -173,7 +183,23 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 		return res
 
 
+class RuleTable(DocumentTableManager):
+	
+	def _get_rowCount(self):
+		webModule = self.ti.webAccess.webModule
+		if hasattr(webModule, "getTableRowCount"):
+			result = webModule.tableIDs.get(self.tableID)
+			return webModule.getTableRowCount(
+				self,
+				nextHandler=lambda: super(RuleTable, self).rowCount,
+				result=result
+			)
+		return super(RuleTable, self).rowCount
+
+
 class TableHandlerRule(Rule):
+	
+	TableClass = RuleTable
 	
 	def createResult(self, node, context, index):
 		result = TableHandlerResult(self, node, context, index)

@@ -25,7 +25,7 @@
 # Keep compatible with Python 2
 from __future__ import absolute_import, division, print_function
 
-__version__ = "2021.11.29"
+__version__ = "2021.12.07"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -180,7 +180,7 @@ class DocumentTableHandler(TableHandler):
 			if not tableConfigKey:
 				kwargs["tableConfigKey"] = tableConfigKey = getTableConfigKey(**kwargs)
 			kwargs["tableConfig"] = tableConfig = getTableConfig(**kwargs)
-		table = DocumentTableManager(
+		table = kwargs.get("tableClass", DocumentTableManager)(
 			_tableConfig=tableConfig,
 			tableID=tableID,
 			ti=ti,
