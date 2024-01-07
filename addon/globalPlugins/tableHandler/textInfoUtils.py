@@ -232,7 +232,7 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 		return self.proxied._setCaretOffset(self._convertToProxiedOffset(offset))
 	
 	def _getSelectionOffsets(self):
-		return self._convertFromProxiedOffsets(*self.proxied.__getSelectionOffsets())
+		return self._convertFromProxiedOffsets(*self.proxied._getSelectionOffsets())
 	
 	def _setSelectionOffsets(self, start, end):
 		return self.proxied._setSelectionOffsets(*self._convertToProxiedOffsets(start, end))
@@ -359,8 +359,7 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 					level += 1
 				elif found and field.command == "controlEnd":
 					level -= 1
-					if level == 0:
-						yield field
+					if level < 0:
 						return
 			if not found:
 				continue
