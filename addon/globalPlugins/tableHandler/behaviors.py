@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Table Handler Global Plugin
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import weakref
 
@@ -54,8 +51,8 @@ from .brailleUtils import (
 	brailleCellsDecimalStringToIntegers,
 	brailleCellsIntegersToUnicode
 )
-from .coreUtils import catchAll, queueCall, translate
 from .fakeObjects import FakeObject
+from .coreUtils import catchAll, queueCall, translate
 from .scriptUtils import getScriptGestureTutorMessage
 from .tableUtils import (
 	getColumnHeaderTextSafe,
@@ -63,21 +60,6 @@ from .tableUtils import (
 	getRowHeaderTextSafe,
 	getRowSpanSafe
 )
-
-
-try:
-	from six import string_types
-except ImportError:
-	# NVDA version < 2018.3
-	string_types = (str, unicode)
-
-
-try:
-	REASON_CARET = controlTypes.OutputReason.CARET
-except AttributeError:
-	# NVDA < 2021.1
-	REASON_CARET = controlTypes.REASON_CARET
-
 
 addonHandler.initTranslation()
 
@@ -122,7 +104,7 @@ class ColumnSeparatorRegion(braille.Region):
 		cls.rawToBraillePos = list(range(len(cells)))	
 	
 	def __init__(self, obj):
-		super(ColumnSeparatorRegion, self).__init__()
+		super().__init__()
 		self.obj = obj
 		self.brailleCells = type(self).brailleCells
 		self.brailleToRawPos = type(self).brailleToRawPos
@@ -153,7 +135,7 @@ class ColumnSeparatorRegion(braille.Region):
 class RowRegionBuffer(TabularBrailleBuffer):
 	
 	def __init__(self, rowRegion):
-		super(RowRegionBuffer, self).__init__()
+		super().__init__()
 		self.rowRegion = weakref.proxy(rowRegion)
 		self.resizingCell = None
 	
@@ -197,14 +179,14 @@ class RowRegionBuffer(TabularBrailleBuffer):
 	
 	def update(self):
 		self.resizingCell = None
-		super(RowRegionBuffer, self).update()
+		super().update()
 		self.resizingCell = None
 
 
 class RowRegion(braille.TextInfoRegion):
 	
 	def __init__(self, cell):
-		super(RowRegion, self).__init__(obj=cell)
+		super().__init__(obj=cell)
 		self.hidePreviousRegions = True
 		self.buffer = RowRegionBuffer(self)
 		self.windowNumber = None
@@ -394,7 +376,7 @@ class Cell(ScriptableObject):
 		customHeaders = self.table._tableConfig["customColumnHeaders"]
 		if num in customHeaders:
 			return customHeaders[num]
-		return getColumnHeaderTextSafe(super(Cell, self))
+		return getColumnHeaderTextSafe(super())
 	
 	def _get_columnWidthBraille(self):
 		return self.table._tableConfig.getColumnWidth(self.columnNumber)
@@ -412,7 +394,7 @@ class Cell(ScriptableObject):
 		customHeaders = self.table._tableConfig["customRowHeaders"]
 		if num in customHeaders:
 			return customHeaders[num]
-		return getRowHeaderTextSafe(super(Cell, self))
+		return getRowHeaderTextSafe(super())
 	
 	def _get_states(self):
 		states = self.parent.states.copy()
@@ -494,7 +476,7 @@ class Cell(ScriptableObject):
 			
 			queueCall(loseFocus_trailer)
 		
-		super(Cell, self).event_loseFocus()
+		super().event_loseFocus()
 	
 	def script_modifyColumnWidthBraille(self, gesture):
 		from .fakeObjects.table import ResizingCell
@@ -602,7 +584,7 @@ class TableManager(ScriptableObject):
 	role = controlTypes.ROLE_TABLE
 	
 	def __init__(self, *args, **kwargs):
-		super(TableManager, self).__init__(*args, **kwargs)
+		super().__init__(*args, **kwargs)
 		self.initOverlayClass()
 	
 	def __repr__(self):
@@ -678,7 +660,7 @@ class TableManager(ScriptableObject):
 		return None
 	
 	def reportFocus(self):  # TODO
-		super(TableManager, self).reportFocus()
+		super().reportFocus()
 	
 	def _getCell(self, rowNumber, columnNumber):
 		row = self._getRow(rowNumber)
@@ -906,12 +888,12 @@ class TableManager(ScriptableObject):
 				appendCell(num)
 		
 		for part in content:
-			if isinstance(part, string_types):
+			if isinstance(part, str):
 				speech.speakText(part)
 			elif isinstance(part, NVDAObject):
 				speech.speakTextInfo(
 					part.makeTextInfo(textInfos.POSITION_ALL),
-					reason=REASON_CARET
+					reason=controlTypes.OutputReason.CARET
 				)
 			else:
 				raise ValueError(part)

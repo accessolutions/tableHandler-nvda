@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,14 +22,12 @@
 """Table Handler Global Plugin
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
+
 from functools import partial
+import json
 import os.path
 import threading
 import weakref
@@ -38,7 +36,7 @@ import addonHandler
 import api
 import braille
 import controlTypes
-import errno
+from garbageHandler import TrackedObject
 import globalPluginHandler
 import globalVars
 from logHandler import log
@@ -47,18 +45,6 @@ import ui
 
 from .lib import synchronized
 from .coreUtils import Break, translate
-
-try:
-	import json
-except ImportError:
-	# NVDA version < 2017.3
-	from .lib import json
-
-try:
-	from garbageHandler import TrackedObject
-except ImportError:
-	# NVDA version < 2020.3
-	TrackedObject = object
 
 
 addonHandler.initTranslation()
@@ -70,7 +56,7 @@ SCRIPT_CATEGORY = "TableHandler"
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	
 	def __init__(self):
-		super(GlobalPlugin, self).__init__()
+		super().__init__()
 		initialize()
 	
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):  # TODO
@@ -185,7 +171,7 @@ def getTableManager(**kwargs):
 class TableHandlerDispatcher(TrackedObject):
 	
 	def __new__(cls, funcName, default, **kwargs):
-		self = super(cls, cls).__new__(cls)
+		self = super().__new__(cls)
 		self._gen = self.gen(funcName, **kwargs)
 		try:
 			return self.next(default, **kwargs)
@@ -242,7 +228,7 @@ class TableHandlerDispatcher(TrackedObject):
 		return func(**kwargs, nextHandler=partial(self.next, default))
 
 
-class TableConfig(object):
+class TableConfig:
 	
 	DEFAULTS = {
 		"defaultColumnWidthByDisplaySize": {0: 10},
@@ -301,9 +287,8 @@ class TableConfig(object):
 		try:
 			with open(cls.FILE_PATH, "r") as f:
 				return json.load(f)
-		except EnvironmentError as e:
-			if e.errno != errno.ENOENT:
-				raise
+		except FileNotFoundError:
+			return None
 	
 	@classmethod
 	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
@@ -419,7 +404,7 @@ class TableConfig(object):
 			json.dump(configs, f, indent=4)
 
 
-class TableHandler(object):
+class TableHandler:
 
 	def getTableManager(self, **kwargs):
 		raise NotImplementedError

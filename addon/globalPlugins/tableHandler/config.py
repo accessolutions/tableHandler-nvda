@@ -1,8 +1,8 @@
-# globalPlugins/webAccess/config.py
+# globalPlugins/tableHandler/config.py
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (http://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (http://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,17 +19,12 @@
 #
 # See the file COPYING.txt at the root of this distribution for more details.
 
-# Stay compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.12"
-__author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
+__author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
+__license__ = "GPL"
 
 
 import config
 from logHandler import log
-
-from .nvdaVersion import nvdaVersion
 
 
 CONFIG_SPEC = {
@@ -50,10 +45,7 @@ def handleConfigChange():
 	if not oldCfg or oldCfg["brailleColumnSeparator"] != newCfg["brailleColumnSeparator"]:
 		from .behaviors import ColumnSeparatorRegion
 		ColumnSeparatorRegion.handleConfigChange()
-	if nvdaVersion >= (2018, 4):
-		_cache = {"tableHandler" : config.conf["tableHandler"].dict()}
-	else:
-		_cache = {"tableHandler": dict(config.conf["tableHandler"].iteritems())}
+	_cache = {"tableHandler" : config.conf["tableHandler"].dict()}
 
 
 def initialize():
@@ -65,12 +57,10 @@ def initialize():
 	spec = config.conf.spec[key]
 	# Initialize cache for later comparison
 	handleConfigChange()
-	if nvdaVersion >= (2018, 3):
-		config.post_configReset.register(handleConfigChange)
+	config.post_configReset.register(handleConfigChange)
 
 
 def terminate():
 	global _cache
-	if nvdaVersion >= (2018, 3):
-		config.post_configReset.unregister(handleConfigChange)
+	config.post_configReset.unregister(handleConfigChange)
 	_cache = None

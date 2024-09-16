@@ -21,11 +21,8 @@
 
 """Table Filter GUI."""
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.02"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
+__license__ = "GPL"
 
 
 import wx
@@ -36,20 +33,12 @@ import config
 from core import callLater
 from eventHandler import queueEvent
 import gui
+from gui import guiHelper
+from gui.settingsDialogs import SettingsDialog, SettingsPanel
 from logHandler import log
 
 from ..brailleUtils import brailleCellsDecimalStringToUnicode
-from ..nvdaVersion import nvdaVersion
 from ..coreUtils import translate, wx_CallAfter
-
-try:
-	from gui import SettingsDialog, SettingsPanel
-except ImportError:
-	from ..backports.nvda_2018_2.gui_settingsDialogs import SettingsDialog, SettingsPanel
-try:
-	import guiHelper
-except ImportError:
-	from ..backports.nvda_2016_4 import gui_guiHelper as guiHelper
 
 
 addonHandler.initTranslation()
@@ -84,7 +73,7 @@ class FilterDialog(wx.Dialog):
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=translate("Case &sensitive"))
 		)
-		item.Value = caseSensitive if table.filterCaseSensitive is not None else False
+		item.Value = table.filterCaseSensitive or False
 		
 		sHelper.addDialogDismissButtons(self.CreateButtonSizer(wx.OK | wx.CANCEL))
 		mainSizer.Add(sHelper.sizer, border=guiHelper.BORDER_FOR_DIALOGS, flag=wx.ALL)

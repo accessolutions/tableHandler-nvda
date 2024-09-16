@@ -1,8 +1,8 @@
 # globalPlugins/tableHandler/coreUtils.py
 # -*- coding: utf-8 -*-
 
-# This file a utility module for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,27 +22,17 @@
 """Core utilities
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.22"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
+
+import threading
 import wx
 
 from NVDAObjects import DynamicNVDAObjectType
 import core
 from logHandler import log
 import queueHandler
-
-
-try:
-	from six.moves._thread import get_ident
-except ImportError:
-	# NVDA version < 2018.3
-	import threading
-	get_ident = lambda: threading.current_thread.ident
 
 
 class Break(Exception):
@@ -90,7 +80,7 @@ def queueCall(callable, *args, **kwargs):
 
 
 def isMainThread():
-	return get_ident() == core.mainThreadId
+	return threading.get_ident() == core.mainThreadId
 
 
 def callInMainThread(callable, *args, **kwargs):

@@ -2,35 +2,38 @@
 # -*- coding: utf8 -*-
 
 # This file is a utility module for NonVisual Desktop Access (NVDA)
-# Copyright (C) 2021 Accessolutions (https://accessolutions.fr)
-# This file may be used under the terms of the GNU General Public License, version 2 or later.
-# For more details see: https://www.gnu.org/licenses/gpl-2.0.html
+# Copyright (C) 2021-2024 Accessolutions (https://accessolutions.fr)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# See the file COPYING.txt at the root of this distribution for more details.
 
-"""Untimed replacement for `scriptHandler.getLastScriptRepeatCount`
+"""Context managers and function decorators to control spoken announcements. 
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-
-__version__ = "2021.11.22"
+__version__ = "2024.09.16"
 __author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
 from functools import wraps
+import threading
 
 import globalPluginHandler
 from logHandler import log, stripBasePathFromTracebackText
 import queueHandler
 import speech
-
-try:
-	from six.moves._thread import get_ident
-except ImportError:
-	# NVDA version < 2018.3
-	import threading
-	get_ident = lambda: threading.current_thread.ident
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -41,9 +44,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		queueHandler.queueFunction = _queueFunction
 		_speak.super = speech.speak
 		speech.speak = _speak
-		if not hasattr(speech, "speech"):
-			# NVDA < 2020.1
-			return
 		speech.speech.speak = _speak
 	
 	def terminate(self):
@@ -73,9 +73,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 			setter(obj.super)
 			break
-		if not hasattr(speech, "speech"):
-			# NVDA < 2020.1
-			return
 		setter = lambda value: setattr(speech.speech, "speak", value)
 		obj = speech.speak
 		while True:
@@ -96,21 +93,21 @@ _activeContextsByThread = {}
 
 
 def _queueFunction(queue, func, *args, **kwargs):
-	ctx = _activeContextsByThread.get(get_ident())
+	ctx = _activeContextsByThread.get(threading.get_ident())
 	if ctx and ctx.propagates:
 		func = _decorator(func, ctx.increment)
 	return _queueFunction.super(queue, func, *args, **kwargs)
 
 
 def _speak(*args, **kwargs):
-	ctx = _activeContextsByThread.get(get_ident())
+	ctx = _activeContextsByThread.get(threading.get_ident())
 	if ctx and ctx.level < 0:
 		ctx.mute(_speak, *args, **kwargs)
 		return
 	return _speak.super(*args, **kwargs)
 
 
-class _SpeechContextManager(object):
+class _SpeechContextManager:
 	
 	def __init__(self, increment, retains=False, propagates=True):
 		if not isinstance(increment, int):
@@ -122,7 +119,7 @@ class _SpeechContextManager(object):
 		self.muted = []
 	
 	def __enter__(self):
-		ident = get_ident()
+		ident = threading.get_ident()
 		parent = self.parent = _activeContextsByThread.get(ident)
 		increment = self.increment
 		self.level = (parent.level if parent else 0) + increment
@@ -132,7 +129,7 @@ class _SpeechContextManager(object):
 		return self
 	
 	def __exit__(self, exc_type, exc_value, traceback):
-		ident = get_ident()
+		ident = threading.get_ident()
 		parent = self.parent
 		if parent:
 			_activeContextsByThread[ident] = parent

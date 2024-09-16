@@ -21,11 +21,8 @@
 
 """Table Handler contextual menu"""
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.30"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
+__license__ = "GPL"
 
  
 import wx
@@ -37,7 +34,6 @@ import gui
 import ui
 
 from ..behaviors import Cell, TableManager
-from ..nvdaVersion import nvdaVersion
 from ..scriptUtils import getScriptGestureMenuHint
 from ..tableUtils import getColumnHeaderTextSafe, getRowHeaderTextSafe
 
@@ -51,7 +47,7 @@ def show():
 class Menu(wx.Menu):
 	
 	def __init__(self):
-		super(Menu, self).__init__()
+		super().__init__()
 		
 		prevFocus = gui.mainFrame.prevFocus
 		if isinstance(prevFocus, Cell):
@@ -342,10 +338,6 @@ class Menu(wx.Menu):
 		cfg["markedRowNumbers"] = marked
 	
 	def onPreferences(self, evt):
-		if nvdaVersion >= (2018, 2):
-			from gui.settingsDialogs import NVDASettingsDialog 
-			from .settings import TableHandlerSettingsPanel
-			gui.mainFrame._popupSettingsDialog(NVDASettingsDialog, TableHandlerSettingsPanel)
-		else:
-			from .settings import TableHandlerSettingsDialog
-			gui.mainFrame._popupSettingsDialog(TableHandlerSettingsDialog)
+		from gui.settingsDialogs import NVDASettingsDialog 
+		from .settings import TableHandlerSettingsPanel
+		gui.mainFrame._popupSettingsDialog(NVDASettingsDialog, TableHandlerSettingsPanel)

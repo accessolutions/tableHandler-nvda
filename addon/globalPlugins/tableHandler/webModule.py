@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Early-Access WebAccess Table Mode integration
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.07"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import weakref
 
@@ -51,25 +48,25 @@ addonHandler.initTranslation()
 class TableHandlerWebModuleScriptWrapper(TableHandlerTreeInterceptorScriptWrapper):
 	
 	def __init__(self, ti, script, **defaults):
-		super(TableHandlerWebModuleScriptWrapper, self).__init__(ti, script, **defaults)
+		super().__init__(ti, script, **defaults)
 		self.arg = "script_"
 	
 	def override(self, gesture, *args, script_=None, **kwargs):
 		# The base class uses the default "script" arg, but it conflicts with WebAccess' actions which also
-		# receive a "script" arg.
+		# receives a "script" arg.
 		script = lambda *args_, **kwargs_: script_(gesture, *args, **kwargs)
-		super(TableHandlerWebModuleScriptWrapper, self).override(gesture, script=script)
+		super().override(gesture, script=script)
 
 
 class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	
 	def __init__(self):
-		super(TableHandlerWebModule, self).__init__()
+		super().__init__()
 		self.tableConfigs = weakref.WeakValueDictionary()
 		self.tableIDs = weakref.WeakValueDictionary()
 	
 	def __getattribute__(self, name):
-		value = super(TableHandlerWebModule, self).__getattribute__(name)
+		value = super().__getattribute__(name)
 		if (name.startswith("script_") or name.startswith("action_")) and not isinstance(
 			value, TableHandlerTreeInterceptorScriptWrapper
 		):
@@ -80,7 +77,7 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	def createRule(self, data):
 		if data.get("name") in self.tableConfigs:
 			return TableHandlerRule(self.ruleManager, data)
-		return super(TableHandlerWebModule, self).createRule(data)
+		return super().createRule(data)
 	
 	def getTableConfig(self, nextHandler=None, **kwargs):
 		tableCfg = nextHandler(**kwargs)
@@ -191,10 +188,10 @@ class RuleTable(DocumentTableManager):
 			result = webModule.tableIDs.get(self.tableID)
 			return webModule.getTableRowCount(
 				self,
-				nextHandler=lambda: super(RuleTable, self).rowCount,
+				nextHandler=lambda: super().rowCount,
 				result=result
 			)
-		return super(RuleTable, self).rowCount
+		return super().rowCount
 
 
 class TableHandlerRule(Rule):
@@ -220,7 +217,7 @@ class TableHandlerRule(Rule):
 class TableHandlerResult(Result):
 	
 	def __getattribute__(self, name):
-		value = super(TableHandlerResult, self).__getattribute__(name)
+		value = super().__getattribute__(name)
 		if name.startswith("script_") and not isinstance(
 			value, TableHandlerTreeInterceptorScriptWrapper
 		):
@@ -231,6 +228,6 @@ class TableHandlerResult(Result):
 	@overrides(Result.script_moveto)
 	def script_moveto(self, gesture, **kwargs):
 		with speechMuted():
-			super(TableHandlerResult, self).script_moveto(gesture, **kwargs)
+			super().script_moveto(gesture, **kwargs)
 	
 	script_moveto.enableTableModeAfter = True

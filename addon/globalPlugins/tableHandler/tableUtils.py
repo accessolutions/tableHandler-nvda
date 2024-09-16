@@ -1,8 +1,8 @@
 # globalPlugins/tableHandler/tableUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is a utility module for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Table utilities
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 from logHandler import log
 
@@ -74,6 +71,7 @@ def getRowSpanSafe(cell):
 		log.exception("cell={}".format(repr(cell)))
 		span = 1
 	return span
+
 
 def iterVirtualBufferTableCellsSafe(vbuf, tableID, startPos=None, direction="next", row=None, column=None):
 	# `VirtualBuffer._iterTableCells` raises `StopIteration` when calling `next` unguarded line 605.

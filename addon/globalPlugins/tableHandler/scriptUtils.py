@@ -1,8 +1,8 @@
 # globalPlugins/tableHandler/scriptUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is a utility module for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Script utilities
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.29"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 from functools import WRAPPER_ASSIGNMENTS, WRAPPER_UPDATES, update_wrapper
 from itertools import groupby
@@ -46,7 +43,7 @@ from .coreUtils import translate
 addonHandler.initTranslation()
 
 
-class ScriptWrapper(object):
+class ScriptWrapper:
 	"""
 	Wrap a script to help controlling its metadata or its execution.
 	"""

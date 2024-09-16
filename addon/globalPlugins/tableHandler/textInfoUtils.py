@@ -1,8 +1,8 @@
 # globalPlugins/tableHandler/textInfoUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is a utility module for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,13 +22,9 @@
 """TextInfo utilities
 """
 
-
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.10"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import textInfos.offsets
 
@@ -41,7 +37,7 @@ class LaxSelectionTextInfo(textInfos.offsets.OffsetsTextInfo):
 	
 	def _get_selectionOffsets(self):
 		try:
-			return super(FakeObjectTextInfo, self).selectionOffsets
+			return super().selectionOffsets
 		except NotImplementedError:
 			return 0, 0
 
@@ -51,7 +47,7 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 	def __init__(self, obj, position, proxied=None, **containerCriteria):
 		self.proxied = proxied
 		self.containerCriteria = containerCriteria
-		super(WindowedProxyTextInfo, self).__init__(obj, position)
+		super().__init__(obj, position)
 		if position == textInfos.POSITION_ALL:
 			self._startOffset = 0
 			self._endOffset = self._convertFromProxiedOffset(proxied._endOffset)

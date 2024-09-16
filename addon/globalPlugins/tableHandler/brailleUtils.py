@@ -1,8 +1,8 @@
 # globalPlugins/tableHandler/brailleUtils.py
 # -*- coding: utf-8 -*-
 
-# This file is a utility module for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# This file is part of Table Handler for NVDA.
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Braille utilities
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import sys
 
@@ -37,8 +34,8 @@ from logHandler import log
 
 class TabularBrailleBuffer(braille.BrailleBuffer):
 	
-	def __init__(self, ):
-		super(TabularBrailleBuffer, self).__init__(handler=braille.handler)
+	def __init__(self):
+		super().__init__(handler=braille.handler)
 	
 	def onRegionUpdatedBeforePadding(self, region):
 		pass

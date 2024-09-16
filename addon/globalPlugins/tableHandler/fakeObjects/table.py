@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Fake table objects
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.01"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import six
 import threading
@@ -76,7 +73,7 @@ class FakeCell(Cell, FakeObject):
 			kwargs["parent"] = row
 		else:
 			kwargs["row"] = row
-		super(FakeCell, self).__init__(*args, **kwargs)
+		super().__init__(*args, **kwargs)
 		if not self.parent:
 			log.error("No parent! args={}, kwargs={}".format(args, kwargs))
 		#self._trackingInfo = [f"{self!r}({id(self)})"]
@@ -117,7 +114,7 @@ class FakeCell(Cell, FakeObject):
 	def _get_next(self):
 		row = self.row
 		if isinstance(row, FakeRow):
-			return super(FakeCell, self).next
+			return super().next
 		return row._getCell(self.columnNumber + 1)
 	
 	_cache_previous = False
@@ -125,7 +122,7 @@ class FakeCell(Cell, FakeObject):
 	def _get_previous(self):
 		row = self.row
 		if isinstance(row, FakeRow):
-			return super(FakeCell, self).previous
+			return super().previous
 		return row._getCell(self.columnNumber - 1)
 	
 	def _get_rowHeaderText(self):
@@ -162,7 +159,7 @@ class ResizingCell(FakeObject):
 	"""Table Cell being resized (braille column width)
 	"""
 	def __init__(self, cell=None):
-		super(ResizingCell, self).__init__(cell=cell, parent=cell.parent)
+		super().__init__(cell=cell, parent=cell.parent)
 	
 	def getBrailleRegions(self, review=False):
 		try:
@@ -179,7 +176,7 @@ class ResizingCell(FakeObject):
 		return regions
 	
 	def getScript(self, gesture):
-		func = super(ResizingCell, self).getScript(gesture)
+		func = super().getScript(gesture)
 		if func:
 			return func
 		if (
@@ -252,12 +249,12 @@ class TextInfoDrivenFakeCell(FakeCell):
 	_childAccess = CHILD_ACCESS_ITERATION
 	
 	def __init__(self, *args, **kwargs):
-		super(TextInfoDrivenFakeCell, self).__init__(*args, **kwargs)
+		super().__init__(*args, **kwargs)
 	
 	def __del__(self):
 		self.info = None
 		# TODO: Fix delayed garbage collection
-		#super(TextInfoDrivenFakeCell, self).__del__()
+		#super().__del__()
 	
 	def _get_field(self):
 		info = self.info
@@ -307,7 +304,7 @@ class TextInfoDrivenFakeCell(FakeCell):
 	
 	def _get_role(self):
 		if self.info is None:
-			return super(TextInfoDrivenFakeCell, self).role
+			return super().role
 		return self.field.get("role")
 	
 	def _get_rowHeaderText(self):
@@ -362,7 +359,7 @@ class FakeRow(Row, FakeObject):
 			kwargs["parent"] = table
 		else:
 			kwargs["table"] = table
-		super(FakeRow, self).__init__(*args, rowNumber=rowNumber, **kwargs)
+		super().__init__(*args, rowNumber=rowNumber, **kwargs)
 		self._cache = {}
 	
 	def _get_columnCount(self):
@@ -377,7 +374,7 @@ class FakeRow(Row, FakeObject):
 	def _iterCells(self):
 		_cellAccess = self._cellAccess
 		if _cellAccess == CELL_ACCESS_CHILDREN:
-			for colNum, colSpan, cell in super(FakeRow, self)._iterCells():
+			for colNum, colSpan, cell in super()._iterCells():
 				yield colNum, colSpan, cell
 		elif _cellAccess == CELL_ACCESS_MANAGED:
 			for colNum in range(1, self.columnCount + 1):
@@ -393,13 +390,13 @@ class TextInfoDrivenFakeRow(FakeRow):
 	_childAccess = CHILD_ACCESS_SEQUENCE
 	
 	def __init__(self, *args, table=None, rowNumber=None, **kwargs):
-		super(TextInfoDrivenFakeRow, self).__init__(*args, table=table, rowNumber=rowNumber, **kwargs)
+		super().__init__(*args, table=table, rowNumber=rowNumber, **kwargs)
 		self._cache = weakref.WeakKeyDictionary()
 	
 	def __del__(self):
 		self._cache.clear()
 		# TODO: Fix delayed garbage collection
-		#super(TextInfoDrivenFakeRow, self).__del__()
+		#super().__del__()
 	
 	def _get_children(self):
 		return [cell for colNum, colSpan, cell in self._iterCells()]
@@ -485,13 +482,13 @@ class FakeTableManager(TableManager, FakeObject):
 	_childAccess = CHILD_ACCESS_ITERATION
 	
 	def __init__(self, *args, **kwargs):
-		super(FakeTableManager, self).__init__(*args, **kwargs)
+		super().__init__(*args, **kwargs)
 		self._rows = weakref.WeakValueDictionary()
 	
 	def __del__(self):
 		self._rows.clear()
 		# TODO: Fix delayed garbage collection
-		#super(FakeTableManager, self).__del__()
+		#super().__del__()
 	
 	_cache_firstChild = False
 	
@@ -530,7 +527,7 @@ class StaticFakeTableManager(FakeTableManager):
 	_cellAccess = CELL_ACCESS_MANAGED
 	
 	def __init__(self, *args, parent=None, headers=None, data=None, **kwargs):
-		super(StaticFakeTableManager, self).__init__(*args, parent=parent, **kwargs)
+		super().__init__(*args, parent=parent, **kwargs)
 		self._headers = headers
 		self._data = data
 	

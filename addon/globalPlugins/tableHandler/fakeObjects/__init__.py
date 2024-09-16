@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Table Handler Global Plugin
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.11.22"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 import six
 import weakref
@@ -61,7 +58,7 @@ class FakeObject(NVDAObject):
 	_childAccess = CHILD_ACCESS_GETTER
 	
 	def __init__(self, **kwargs):
-		super(FakeObject, self).__init__()
+		super().__init__()
 		if "children" in kwargs:
 			self._childAccess = CHILD_ACCESS_SEQUENCE
 		elif "firstChild" in kwargs:
@@ -74,7 +71,7 @@ class FakeObject(NVDAObject):
 		pass
 	
 	def _get_TextInfo(self):
-		superCls = super(FakeObject, self).TextInfo
+		superCls = super().TextInfo
 		if not issubclass(
 			superCls,
 			textInfos.offsets.OffsetsTextInfo
@@ -198,7 +195,7 @@ class FakeObject(NVDAObject):
 	
 	def setFocus(self):
 		#log.info(f"setFocus({self!r})", stack_info=True)
-		callInMainThread(eventHandler.executeEvent, "gainFocu", self)
+		callInMainThread(eventHandler.executeEvent, "gainFocus", self)
 	
 	def _isEqual(self, obj):
 		return self is obj

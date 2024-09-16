@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # This file is part of Table Handler for NVDA.
-# Copyright (C) 2020-2021 Accessolutions (https://accessolutions.fr)
+# Copyright (C) 2020-2024 Accessolutions (https://accessolutions.fr)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,12 +22,9 @@
 """Table Mode on documents
 """
 
-# Keep compatible with Python 2
-from __future__ import absolute_import, division, print_function
-
-__version__ = "2021.12.07"
 __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
+
 
 from itertools import chain
 import os.path
@@ -67,26 +64,6 @@ from .fakeObjects.table import (
 from .scriptUtils import ScriptWrapper, overrides
 from .tableUtils import iterVirtualBufferTableCellsSafe
 from .textInfoUtils import getField
-
-
-try:
-	from six import string_types
-except ImportError:
-	# NVDA version < 2018.3
-	string_types = (str, unicode)
-
-
-try:
-	REASON_CARET = controlTypes.OutputReason.CARET
-	REASON_CHANGE = controlTypes.OutputReason.CHANGE
-	REASON_FOCUS = controlTypes.OutputReason.FOCUS
-	REASON_ONLYCACHE = controlTypes.OutputReason.ONLYCACHE
-except AttributeError:
-	# NVDA < 2021.1
-	REASON_CHANGE = controlTypes.REASON_CHANGE
-	REASON_CARET = controlTypes.REASON_CARET
-	REASON_FOCUS = controlTypes.REASON_FOCUS
-	REASON_ONLYCACHE = controlTypes.REASON_ONLYCACHE
 
 
 addonHandler.initTranslation()
@@ -206,7 +183,7 @@ class DocumentTableHandler(TableHandler):
 			log.exception()
 
 
-class PassThrough(object):
+class PassThrough:
 	"""Used to represent alternative values for `TreeInterceptor.passThrough`
 	
 	See `TABLE_MODE`.
@@ -260,7 +237,7 @@ class TableHandlerDocument(AutoPropertyObject):
 	
 	def _get_treeInterceptorClass(self):
 		# Might raise NotImplementedError on purpose.
-		superCls = super(TableHandlerDocument, self).treeInterceptorClass
+		superCls = super().treeInterceptorClass
 		if not issubclass(superCls, BrowseModeDocumentTreeInterceptor):
 			return superCls
 		return getDynamicClass((TableHandlerTreeInterceptor, superCls))
@@ -275,9 +252,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 		defaults.setdefault("restoreTableModeAfter", False)
 		defaults.setdefault("restoreTableModeAfterIfBrowseMode", False)
 		defaults.setdefault("restoreTableModeAfterIfNotMoved", True)
-		super(TableHandlerTreeInterceptorScriptWrapper, self).__init__(
-			script, override=self.override, **defaults
-		)
+		super().__init__(script, override=self.override, **defaults)
 		# NVDA Input Help looks for this attribute
 		self.__self__ = ti
 	
@@ -304,7 +279,9 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 			
 			def cacheChildrenProperties(obj):
 				for obj in obj.children:
-					speech.speakObjectProperties(obj, states=True, reason=REASON_ONLYCACHE)
+					speech.speakObjectProperties(
+						obj, states=True, reason=controlTypes.OutputReason.ONLYCACHE
+					)
 					#log.info(f"caching {getObjId(obj)}: {obj._speakObjectPropertiesCache}")
 					cache[getObjId(obj)] = obj._speakObjectPropertiesCache
 					cacheChildrenProperties(obj)
@@ -378,7 +355,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	""" 
 	
 	def __init__(self, rootNVDAObject):
-		super(TableHandlerTreeInterceptor, self).__init__(rootNVDAObject)
+		super().__init__(rootNVDAObject)
 		
 		self.autoTableMode = False
 		self._tableManagers = {}
@@ -386,7 +363,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		self._speakObjectTableCellChildrenPropertiesCache = {}
 	
 	def __getattribute__(self, name):
-		value = super(TableHandlerTreeInterceptor, self).__getattribute__(name)
+		value = super().__getattribute__(name)
 		if name.startswith("script_") and not isinstance(
 			value, TableHandlerTreeInterceptorScriptWrapper
 		):
@@ -461,16 +438,14 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			api.setFocusObject(obj)
 			api.setNavigatorObject(obj)
 		#log.info(f">>> _set_passThrough({state}) was {self._passThrough}")
-		super(TableHandlerTreeInterceptor, self)._set_passThrough(state)
+		super()._set_passThrough(state)
 	
-	def _set_selection(self, info, reason=REASON_CARET):
-		#log.info(f"_set_selection({id(self)}, {info._startOffset}, {reason})", stack_info=reason == REASON_FOCUS)
-		#log.info(f"_set_selection({info}, reason={reason!r})", stack_info=False)
+	def _set_selection(self, info, reason=controlTypes.OutputReason.CARET):
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
-				super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=REASON_CARET)
+				super()._set_selection(info, reason=controlTypes.OutputReason.CARET)
 			return
-		elif reason == REASON_FOCUS and self.passThrough == TABLE_MODE:
+		elif reason == controlTypes.OutputReason.FOCUS and self.passThrough == TABLE_MODE:
 			table = self._currentTable
 			if table:
 				cell = table._currentCell
@@ -478,7 +453,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 					cell.setFocus()
 					return
 		try:
-			super(TableHandlerTreeInterceptor, self)._set_selection(info, reason=reason)
+			super()._set_selection(info, reason=reason)
 		except Exception:
 			log.exception("_set_selection({!r}, {!r})".format(info, reason))
 			raise
@@ -504,11 +479,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				if cell is not None:
 					return cell.getBrailleRegions(review=review)
 				# TODO: Handle braille reporting of empty tables
-		return super(TableHandlerTreeInterceptor, self).getBrailleRegions(review=review)
+		return super().getBrailleRegions(review=review)
 	
 	@catchAll(log)
 	def getAlternativeScript(self, gesture, script):
-		script = super(TableHandlerTreeInterceptor, self).getAlternativeScript(gesture, script)
+		script = super().getAlternativeScript(gesture, script)
 		if script is not None and not isinstance(script, TableHandlerTreeInterceptorScriptWrapper):
 			script = TableHandlerTreeInterceptorScriptWrapper(self, script)
 		return script
@@ -531,7 +506,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				func = table.getScript(gesture)
 				if func is not None:
 					return func
-		func = super(TableHandlerTreeInterceptor, self).getScript(gesture)
+		func = super().getScript(gesture)
 		if func is not None and not isinstance(func, TableHandlerTreeInterceptorScriptWrapper):
 			func = TableHandlerTreeInterceptorScriptWrapper(self, func)
 		return func
@@ -576,7 +551,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 					log.info(f"TI.getTableManager - Not in cache: {tableID}")
 		elif kwargs.get("debug"):
 			log.info(f"TI.getTableManager - No tableCellCoords (yet)")
-		table = super(TableHandlerTreeInterceptor, self).getTableManager(nextHandler=nextHandler, **kwargs)
+		table = super().getTableManager(nextHandler=nextHandler, **kwargs)
 		if table:
 			self._tableManagers[table.tableID] = table
 			if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
@@ -589,13 +564,13 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		if isinstance(position, FakeObject):
 			log.error("TI asked for a fake object!", stack_info=True)
 			return position.makeTextInfo(position)
-		return super(TableHandlerTreeInterceptor, self).makeTextInfo(position)
+		return super().makeTextInfo(position)
 	
 	def shouldPassThrough(self, obj, reason=None):
 		if self.passThrough == TABLE_MODE:
 			return TABLE_MODE
-		return super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
-# 		res = super(TableHandlerTreeInterceptor, self).shouldPassThrough(obj, reason=reason)
+		return super().shouldPassThrough(obj, reason=reason)
+# 		res = super().shouldPassThrough(obj, reason=reason)
 # 		if self.passThrough == FOCUS_MODE_FROM_TABLE_MODE:
 # 			return FOCUS_MODE_FROM_TABLE_MODE
 
@@ -621,7 +596,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				# this object to change (e.g. checking a check box). However, we won't
 				# actually get the focus event until after the change has occurred.
 				# Therefore, we must cache properties for speech before the change occurs.
-				speech.speakObject(obj, REASON_ONLYCACHE)
+				speech.speakObject(obj, controlTypes.OutputReason.ONLYCACHE)
 				self._objPendingFocusBeforeActivate = obj
 			#else:
 			#	log.info(f"obj {obj.role!r} {getObjId(obj)} == focus {focus.role!r} {getObjId(focus)}")
@@ -676,7 +651,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	def _handleUpdate(self):
 		#log.info("_handleUpdate")
-		super(TableHandlerTreeInterceptor, self)._handleUpdate()
+		super()._handleUpdate()
 		if self.passThrough != TABLE_MODE:
 			return
 		table = self._currentTable
@@ -711,7 +686,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				for obj in obj.children:
 					objId = getObjId(obj)
 					obj._speakObjectPropertiesCache = cache.get(objId, {})
-					speech.speakObjectProperties(obj, states=True, reason=REASON_CHANGE)
+					speech.speakObjectProperties(obj, states=True, reason=controlTypes.OutputReason.CHANGE)
 					cache[objId] = obj._speakObjectPropertiesCache
 					speakChildrenPropertiesChange(obj)
 			
@@ -732,13 +707,13 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	def _loadBufferDone(self, success=True):
 		#log.warning(f"_loadBufferDone({success})")
-		super(TableHandlerTreeInterceptor, self)._loadBufferDone(success=success)
+		super()._loadBufferDone(success=success)
 		self._tableManagers.clear()
 	
 	def event_documentLoadComplete(self, *args, **kwargs):
 		#log.warning(f"event_documentLoadComplete({args}, {kwargs})")
 		getattr(
-			super(TableHandlerTreeInterceptor, self),
+			super(),
 			"event_documentLoadComplete",
 			lambda *args, **kwargs: None
 		)(*args, **kwargs)
@@ -749,7 +724,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		if self.passThrough == TABLE_MODE:
 			try:
 				with speechMuted():
-					super(TableHandlerTreeInterceptor, self).event_gainFocus(obj, nextHandler)
+					super().event_gainFocus(obj, nextHandler)
 			except Exception:
 				log.exception("obj={!r}".format(obj))
 				raise
@@ -759,7 +734,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		# trigger both gainFocus and stateChange events.
 		pending = self._objPendingFocusBeforeActivate
 		oldCache = getattr(pending, "_speakObjectPropertiesCache", None)
-		super(TableHandlerTreeInterceptor, self).event_gainFocus(obj, nextHandler)
+		super().event_gainFocus(obj, nextHandler)
 		newCache = getattr(pending, "_speakObjectPropertiesCache", None)
 		if oldCache != newCache:
 			obj._speakObjectPropertiesCache = newCache
@@ -794,7 +769,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 					else:
 # 						log.info(f"not in cache: {objId}")
 		
-		func = getattr(super(TableHandlerTreeInterceptor, self), "event_stateChange", None)
+		func = getattr(super(), "event_stateChange", None)
 		if func:
 			func(obj, nextHandler)
 		else:
@@ -807,7 +782,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToNextColumn(gesture)
 			return
-		super(TableHandlerTreeInterceptor, self).script_nextColumn(gesture)
+		super().script_nextColumn(gesture)
 	
 	script_nextColumn.disableTableModeBefore = False
 	
@@ -818,7 +793,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToPreviousColumn(gesture)
 			return
-		super(TableHandlerTreeInterceptor, self).script_previousColumn(gesture)
+		super().script_previousColumn(gesture)
 	
 	script_previousColumn.disableTableModeBefore = False
 	
@@ -828,7 +803,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			self.passThrough = TABLE_MODE
 			reportPassThrough(self)
 			return
-		super(TableHandlerTreeInterceptor, self).script_disablePassThrough(gesture)
+		super().script_disablePassThrough(gesture)
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextRow)
 	def script_nextRow(self, gesture):
@@ -836,7 +811,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 # 			return
-		super(TableHandlerTreeInterceptor, self).script_nextRow(gesture)
+		super().script_nextRow(gesture)
 	
 	script_nextRow.disableTableModeBefore = False
 	
@@ -846,7 +821,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 # 			# Translators: A tutor message
 # 			ui.message(_("In table mode, use arrows to navigate table cells."))
 # 			return
-		super(TableHandlerTreeInterceptor, self).script_previousRow(gesture)
+		super().script_previousRow(gesture)
 	
 	script_previousRow.disableTableModeBefore = False
 	
@@ -858,7 +833,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			return
 		bookmark = self.selection.bookmark
 		with speechMuted(retains=True) as ctx:
-			super(TableHandlerTreeInterceptor, self).script_nextTable(gesture)
+			super().script_nextTable(gesture)
 		
 		def nextTable_trailer():
 			try:
@@ -878,7 +853,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def script_previousTable(self, gesture):
 		bookmark = self.selection.bookmark
 		with speechMuted(retains=True) as ctx:
-			super(TableHandlerTreeInterceptor, self).script_previousTable(gesture)
+			super().script_previousTable(gesture)
 		
 		def previousTable_trailer():
 			try:
@@ -960,7 +935,7 @@ class DocumentFakeCell(TextInfoDrivenFakeCell, DocumentFakeObject):
 		ti._set_selection(sel, reason=REASON_TABLE_MODE)
 		table._currentRowNumber = self.rowNumber
 		table._currentColumnNumber = self.columnNumber
-		super(DocumentFakeCell, self).event_gainFocus()	
+		super().event_gainFocus()	
 	
 	@overrides(TextInfoDrivenFakeCell.script_modifyColumnWidthBraille)
 	def script_modifyColumnWidthBraille(self, gesture):
@@ -984,7 +959,7 @@ class DocumentFakeRow(TextInfoDrivenFakeRow, DocumentFakeObject):
 class DocumentRootFakeObject(DocumentFakeObject):
 	
 	def __init__(self, *args, ti=None, **kwargs):
-		super(DocumentRootFakeObject, self).__init__(*args, ti=ti, **kwargs)
+		super().__init__(*args, ti=ti, **kwargs)
 		self._parent = None
 	
 	_cache_ti = False
@@ -1039,13 +1014,13 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	def _get_columnCount(self):
 		count = self.field.get("table-columncount")
-		if isinstance(count, string_types):
+		if isinstance(count, str):
 			count = int(count)
 		return count
 	
 	def _get_rowCount(self):
 		count = self.field.get("table-rowcount")
-		if isinstance(count, string_types):
+		if isinstance(count, str):
 			count = int(count)
 		return count
 	
@@ -1077,7 +1052,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	def getScript(self, gesture):
 		if hasattr(gesture, "__DocumentTableManager"):
 			return None
-		func = super(DocumentTableManager, self).getScript(gesture)
+		func = super().getScript(gesture)
 		if func is not None:
 			return func
 		setattr(gesture, "__DocumentTableManager", None)  # Avoid recursion
@@ -1122,7 +1097,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 				# of the virtual buffer as the focus re-entered the document.
 				table._onTableFilterChange(text=text, caseSensitive=caseSensitive)
 				return
-		super(DocumentTableManager, self)._onTableFilterChange(
+		super()._onTableFilterChange(
 			text=text, caseSensitive=caseSensitive
 		)
 	
@@ -1160,7 +1135,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	def _tableMovementScriptHelper(self, axis, direction, notifyOnFailure=True, fromCell=None):
 		from .behaviors import AXIS_ROWS, DIRECTION_NEXT, DIRECTION_PREVIOUS
 		if not(axis == AXIS_ROWS and self.filterText):
-			return super(DocumentTableManager, self)._tableMovementScriptHelper(
+			return super()._tableMovementScriptHelper(
 				axis, direction, notifyOnFailure=notifyOnFailure, fromCell=fromCell
 			)
 		if fromCell:
@@ -1225,7 +1200,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 # 				and info.compareEndPoints(sel, "endToEnd") <= 0
 # 			):
 # 				ti.passThrough = FOCUS_MODE_FROM_TABLE_MODE
-# 				ti._set_selection(info, reason=REASON_FOCUS)
+# 				ti._set_selection(info, reason=controlTypes.OutputReason.FOCUS)
 # 				ti.passThrough = FOCUS_MODE_FROM_TABLE_MODE
 # 				obj = item.obj
 # 				if NVDAObjects.NVDAObject.objectWithFocus() != obj:
