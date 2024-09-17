@@ -1238,7 +1238,7 @@ class TableManager(ScriptableObject):
 	script_moveToPreviousMarkedRow.__doc__ = _("Go to the previous marked row")
 	
 	def script_selectRow(self, gesture):  # TODO
-		raise NotImplementedError()
+		ui.message(_("Not supported on this table"))
 	
 	script_selectRow.canPropagate = True
 	# Translators: The description of a command.
