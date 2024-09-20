@@ -105,11 +105,19 @@ class TableHandlerSettingsPanel(SettingsPanel):
 	
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
+		item = self.quickNav = sHelper.addItem(
+			# Translators: The label for a settings in the Table Mode settings panel
+			wx.CheckBox(self, label=_(
+				"Single letter &quick navigation between tables"
+				"activates Table Mode"
+			))
+		)
+		item.Value = config.conf["tableHandler"]["enableOnQuickNav"]
 		item = self.brlDblClick = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
 				"&Double-click on braille routing cursor"
-				" to activate controls within table cells."
+				" to activate controls within table cells"
 			))
 		)
 		item.Value = config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
@@ -139,6 +147,7 @@ class TableHandlerSettingsPanel(SettingsPanel):
 		item.Value = config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]
 	
 	def onSave(self):
+		config.conf["tableHandler"]["enableOnQuickNav"] = self.quickNav.GetValue()
 		config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"] = self.brlDblClick.GetValue()
 		config.conf["tableHandler"]["brailleColumnSeparator"] = self.brlColSep.Value
 		config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"] = self.brlColSepActivate.Value

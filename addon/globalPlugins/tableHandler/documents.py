@@ -827,6 +827,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextTable)
 	def script_nextTable(self, gesture):
+		if not config.conf["tableHandler"]["enableOnQuickNav"]:
+			super().script_nextTable(gesture)
+			return
 		if self.passThrough is False and self._currentTable:
 			self.passThrough = TABLE_MODE
 			queueCall(reportPassThrough, self)
@@ -851,6 +854,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_previousTable)
 	def script_previousTable(self, gesture):
+		if not config.conf["tableHandler"]["enableOnQuickNav"]:
+			super().script_previousTable(gesture)
+			return
 		bookmark = self.selection.bookmark
 		with speechMuted(retains=True) as ctx:
 			super().script_previousTable(gesture)
