@@ -984,7 +984,6 @@ class DocumentRootFakeObject(DocumentFakeObject):
 		if self is focus:
 			parent = next(reversed(api.getFocusAncestors()))
 		else:
-			from itertools import chain
 			for obj in chain((focus,), reversed(api.getFocusAncestors())):
 				if isinstance(obj, FakeObject):
 					continue

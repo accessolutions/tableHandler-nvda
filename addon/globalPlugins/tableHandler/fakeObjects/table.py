@@ -26,9 +26,6 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
-import six
-import threading
-import time
 import weakref
 
 from NVDAObjects import NVDAObject
@@ -40,8 +37,6 @@ import controlTypes
 from logHandler import log
 from scriptHandler import getLastScriptRepeatCount
 import speech
-import textInfos
-import textInfos.offsets
 
 from ..behaviors import Cell, Row, TableManager
 from ..tableUtils import getColumnSpanSafe, getRowSpanSafe

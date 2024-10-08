@@ -26,16 +26,13 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
-from functools import WRAPPER_ASSIGNMENTS, WRAPPER_UPDATES, update_wrapper
 from itertools import groupby
-import time
 
 import addonHandler
 import inputCore
 from keyboardHandler import KeyboardInputGesture
 from logHandler import log
 import gui
-import scriptHandler
 
 from .coreUtils import translate 
 
@@ -59,7 +56,6 @@ class ScriptWrapper:
 		self.override = override
 		self.arg = arg
 		self.defaults = defaults
-		#update_wrapper(self, script)
 	
 	def __call__(self, *args, **kwargs):
 		script = self.script

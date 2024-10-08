@@ -44,7 +44,7 @@ from treeInterceptorHandler import TreeInterceptor
 import ui
 
 from .lib import synchronized
-from .coreUtils import Break, translate
+from .coreUtils import translate
 
 
 addonHandler.initTranslation()

@@ -26,15 +26,9 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
-import six
-import weakref
-
-from NVDAObjects import IAccessible, NVDAObject
+from NVDAObjects import NVDAObject
 import addonHandler
 import api
-import braille
-import browseMode
-import config
 import eventHandler
 from logHandler import log
 import textInfos.offsets

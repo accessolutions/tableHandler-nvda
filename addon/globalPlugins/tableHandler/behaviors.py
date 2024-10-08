@@ -44,14 +44,13 @@ import ui
 import vision
 
 from globalPlugins.lastScriptUntimedRepeatCount import getLastScriptUntimedRepeatCount
-from globalPlugins.withSpeechMuted import speechMuted, speechUnmutedFunction
+from globalPlugins.withSpeechMuted import speechUnmutedFunction
 
 from .brailleUtils import (
 	TabularBrailleBuffer,
 	brailleCellsDecimalStringToIntegers,
 	brailleCellsIntegersToUnicode
 )
-from .fakeObjects import FakeObject
 from .coreUtils import catchAll, queueCall, translate
 from .scriptUtils import getScriptGestureTutorMessage
 from .tableUtils import (

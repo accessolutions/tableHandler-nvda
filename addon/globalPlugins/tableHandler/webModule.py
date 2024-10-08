@@ -30,7 +30,6 @@ import weakref
 
 import addonHandler
 from logHandler import log
-from treeInterceptorHandler import TreeInterceptor
 
 from globalPlugins.webAccess.ruleHandler import Result, Rule
 from globalPlugins.webAccess.webModuleHandler import WebModule

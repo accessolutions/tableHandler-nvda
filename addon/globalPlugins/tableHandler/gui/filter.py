@@ -27,17 +27,12 @@ __license__ = "GPL"
 
 import wx
 
-import api
 import addonHandler
-import config
 from core import callLater
-from eventHandler import queueEvent
 import gui
 from gui import guiHelper
-from gui.settingsDialogs import SettingsDialog, SettingsPanel
 from logHandler import log
 
-from ..brailleUtils import brailleCellsDecimalStringToUnicode
 from ..coreUtils import translate, wx_CallAfter
 
 
