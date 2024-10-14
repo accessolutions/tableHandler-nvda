@@ -524,6 +524,7 @@ class StaticFakeTableManager(FakeTableManager):
 
 
 def test():
+	from .. import TableConfig
 	t = StaticFakeTableManager(
 		parent=api.getFocusObject(),
 		headers=["Col A", "Col B", "Col C"],
@@ -531,6 +532,7 @@ def test():
 			["Cell A1", "Cell B1", "Cell C1"],
 			["Cell A2", "Cell B2", "Cell C2"],
 			["Cell A3", "Cell B3", "Cell C3"],
-		]
+		],
+		_tableConfig=TableConfig.get("Test StaticFakeTableManager")
 	)
 	t.setFocus()
