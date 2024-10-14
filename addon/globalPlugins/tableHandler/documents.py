@@ -1028,31 +1028,7 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		if isinstance(count, str):
 			count = int(count)
 		return count
-	
-	def _get__firstDataCell(self):
-		# TODO: Add a non-document default implementation
-		#log.info("_get__firstDataCell")
-		tableID = self.tableID
-		colHeaRowNum = self._tableConfig["columnHeaderRowNumber"]
-		rowHeaColNum = self._tableConfig["rowHeaderColumnNumber"]
-		firstRowNum = self._tableConfig["firstDataRowNumber"]
-		firstColNum = self._tableConfig["firstDataColumnNumber"]
-		for info in iterVirtualBufferTableCellsSafe(self.ti, tableID, startPos=None):
-			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECELL)
-			if field:
-				rowNum = field.get("table-rownumber")
-				colNum = field.get("table-columnnumber")
-				if rowNum is None or colNum is None:
-					continue
-				if rowNum == colHeaRowNum or colNum == rowHeaColNum:
-					continue
-				if firstRowNum is not None and rowNum < firstRowNum:
-					continue
-				if firstColNum is not None and colNum < firstColNum:
-					continue
-				cell = self._getCell(rowNum, colNum)
-				return cell
-	
+		
 	@catchAll(log)
 	def getScript(self, gesture):
 		if hasattr(gesture, "__DocumentTableManager"):

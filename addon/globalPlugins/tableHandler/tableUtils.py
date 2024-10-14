@@ -74,6 +74,7 @@ def getRowSpanSafe(cell):
 
 
 def iterVirtualBufferTableCellsSafe(vbuf, tableID, startPos=None, direction="next", row=None, column=None):
+	# This method has been seen to sometimes skip the first column when no row was specified
 	# `VirtualBuffer._iterTableCells` raises `StopIteration` when calling `next` unguarded line 605.
 	try:
 		for item in vbuf._iterTableCells(

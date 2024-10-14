@@ -682,6 +682,24 @@ class TableManager(ScriptableObject):
 			return self._getRow(curNum)
 		return None
 	
+	def _get__firstDataCell(self):
+		firstRowNum = self._tableConfig["firstDataRowNumber"]
+		firstColNum = self._tableConfig["firstDataColumnNumber"]
+		if firstRowNum is not None and firstColNum is not None:
+			return self._getCell(firstRowNum, firstColNum)
+		rowNums = (firstRowNum,) if firstRowNum else tuple(range(1, self.rowCount + 1))
+		colNums = (firstColNum,) if firstColNum else tuple(range(1, self.columnCount + 1))
+		for rowNum in rowNums:
+			for colNum in colNums:
+				cell = self._getCell(rowNum, colNum)
+				if cell:
+					if len(rowNums) > 1 and cell.role == controlTypes.ROLE_TABLEROWHEADER:
+						continue
+					if len(colNums) > 1 and cell.role == controlTypes.ROLE_TABLECOLUMNHEADER:
+						continue
+					return cell
+		return self._getCell(1, 1)
+	
 	def reportFocus(self):  # TODO
 		super().reportFocus()
 	
