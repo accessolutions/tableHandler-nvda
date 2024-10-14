@@ -351,7 +351,6 @@ class Cell(ScriptableObject):
 	
 	scriptCategory = SCRIPT_CATEGORY
 	cachePropertiesByDefault = True
-	role = controlTypes.ROLE_TABLECELL
 	
 	def __repr__(self):
 		try:
@@ -384,6 +383,21 @@ class Cell(ScriptableObject):
 		raise NotImplementedError
 	
 	_cache_row = False
+	
+	def _get_role(self):
+		cfg = self.table._tableConfig
+		colHeaRowNum = cfg["columnHeaderRowNumber"]
+		if self.rowNumber == colHeaRowNum:
+			return controlTypes.ROLE_TABLEROWHEADER
+		rowHeaColNum = cfg["rowHeaderColumnNumber"]
+		if self.columnNumber == rowHeaColNum:
+			return controlTypes.ROLE_TABLECOLUMNHEADER
+		if (
+			colHeaRowNum and self.rowNumber != colHeaRowNum
+			and rowHeaColNum and self.columnNumber != rowHeaColNum
+		):
+			return controlTypes.ROLE_TABLECELL
+		return self.getRole()
 	
 	def _get_row(self):
 		return self.parent
@@ -421,6 +435,9 @@ class Cell(ScriptableObject):
 		else:
 			# Render the whole row.
 			return [RowRegion(cell=self),]
+	
+	def getRole(self):
+		return controlTypes.ROLE_TABLECELL
 	
 	def honorsFilter(self, text, caseSensitive=False):
 		needle = text

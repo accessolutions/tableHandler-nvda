@@ -297,11 +297,6 @@ class TextInfoDrivenFakeCell(FakeCell):
 			return None
 		return self.info.NVDAObjectAtStart.location
 	
-	def _get_role(self):
-		if self.info is None:
-			return super().role
-		return self.field.get("role")
-	
 	def _get_rowHeaderText(self):
 		num = self.rowNumber
 		customHeaders = self.table._tableConfig["customRowHeaders"]
@@ -325,6 +320,11 @@ class TextInfoDrivenFakeCell(FakeCell):
 		if self.info is None:
 			return None
 		return self.field.get("table-rowsspanned")
+	
+	def getRole(self):
+		if self.info is None:
+			return super().getRole()
+		return self.field.get("role")
 	
 	def makeTextInfo(self, position):
 		info = self.info
