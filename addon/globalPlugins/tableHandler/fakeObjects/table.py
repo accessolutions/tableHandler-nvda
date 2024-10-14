@@ -81,19 +81,6 @@ class FakeCell(Cell, FakeObject):
 		if func is not None:
 			return func(self.rowNumber, self.columnNumber)
 		raise NotImplementedError
-
-	def _get_columnHeaderText(self):
-		num = self.columnNumber
-		customHeaders = self.table._tableConfig["customColumnHeaders"]
-		if num in customHeaders:
-			return customHeaders[num]
-		func = getattr(self.row, "_getColumnHeaderText", None)
-		if func is not None:
-			return func(num)
-		func = getattr(self.table, "_getColumnHeaderText", None)
-		if func is not None:
-			return func(num)
-		raise NotImplementedError
 	
 	def _get_location(self):
 		func = getattr(self.row, "_getCellLocation", None)
@@ -120,21 +107,26 @@ class FakeCell(Cell, FakeObject):
 			return super().previous
 		return row._getCell(self.columnNumber - 1)
 	
-	def _get_rowHeaderText(self):
-		num = self.rowNumber
-		customHeaders = self.table._tableConfig["customRowHeaders"]
-		if num in customHeaders:
-			return customHeaders[num]
+	def _get_rowNumber(self):
+		return self.row.rowNumber
+	
+	def getColumnHeaderText(self):
+		func = getattr(self.row, "_getColumnHeaderText", None)
+		if func is not None:
+			return func(num)
+		func = getattr(self.table, "_getColumnHeaderText", None)
+		if func is not None:
+			return func(self.columnNumber)
+		return ""
+	
+	def getRowHeaderText(self):
 		func = getattr(self.row, "_getRowHeaderText", None)
 		if func is not None:
 			return func(num)
 		func = getattr(self.table, "_getRowHeaderText", None)
 		if func is not None:
-			return func(num)
-		raise NotImplementedError
-	
-	def _get_rowNumber(self):
-		return self.row.rowNumber
+			return func(self.rowNumber)
+		return ""
 	
 	def script_reportCurrentFocus(self, gesture):
 		if getLastScriptRepeatCount() == 0:
@@ -268,15 +260,6 @@ class TextInfoDrivenFakeCell(FakeCell):
 			return None
 		return self.info.text
 	
-	def _get_columnHeaderText(self):
-		num = self.columnNumber
-		customHeaders = self.table._tableConfig["customColumnHeaders"]
-		if num in customHeaders:
-			return customHeaders[num]
-		if self.info is None:
-			return None
-		return self.field.get("table-columnheadertext")
-	
 	def _get_columnNumber(self):
 		if self.info is None:
 			return None
@@ -297,15 +280,6 @@ class TextInfoDrivenFakeCell(FakeCell):
 			return None
 		return self.info.NVDAObjectAtStart.location
 	
-	def _get_rowHeaderText(self):
-		num = self.rowNumber
-		customHeaders = self.table._tableConfig["customRowHeaders"]
-		if num in customHeaders:
-			return customHeaders[num]
-		if self.info is None:
-			return None
-		return self.field.get("table-rowheadertext")
-	
 	def _get_columnNumber(self):
 		if self.info is None:
 			return None
@@ -321,10 +295,20 @@ class TextInfoDrivenFakeCell(FakeCell):
 			return None
 		return self.field.get("table-rowsspanned")
 	
+	def getColumnHeaderText(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-columnheadertext")
+	
 	def getRole(self):
 		if self.info is None:
 			return super().getRole()
 		return self.field.get("role")
+	
+	def getRowHeaderText(self):
+		if self.info is None:
+			return None
+		return self.field.get("table-rowheadertext")
 	
 	def makeTextInfo(self, position):
 		info = self.info

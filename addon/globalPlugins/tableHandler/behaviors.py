@@ -374,7 +374,7 @@ class Cell(ScriptableObject):
 		customHeaders = self.table._tableConfig["customColumnHeaders"]
 		if num in customHeaders:
 			return customHeaders[num]
-		return getColumnHeaderTextSafe(super())
+		return self.getColumnHeaderText()
 	
 	def _get_columnWidthBraille(self):
 		return self.table._tableConfig.getColumnWidth(self.columnNumber)
@@ -407,7 +407,7 @@ class Cell(ScriptableObject):
 		customHeaders = self.table._tableConfig["customRowHeaders"]
 		if num in customHeaders:
 			return customHeaders[num]
-		return getRowHeaderTextSafe(super())
+		return self.getRowHeaderText()
 	
 	def _get_states(self):
 		states = self.parent.states.copy()
@@ -436,8 +436,15 @@ class Cell(ScriptableObject):
 			# Render the whole row.
 			return [RowRegion(cell=self),]
 	
+	def getColumnHeaderText(self):
+		log.info("BINGO")
+		return getColumnHeaderTextSafe(super())
+	
 	def getRole(self):
 		return controlTypes.ROLE_TABLECELL
+	
+	def getRowHeaderText(self):
+		return getRowHeaderTextSafe(super())
 	
 	def honorsFilter(self, text, caseSensitive=False):
 		needle = text
