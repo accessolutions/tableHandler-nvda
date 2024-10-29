@@ -437,7 +437,6 @@ class Cell(ScriptableObject):
 			return [RowRegion(cell=self),]
 	
 	def getColumnHeaderText(self):
-		log.info("BINGO")
 		return getColumnHeaderTextSafe(super())
 	
 	def getRole(self):
@@ -1305,11 +1304,10 @@ class TableManager(ScriptableObject):
 			# Translators: Announced when customizing column headers
 			ui.message(_("Column header disabled"))
 		else:
-			cfg["columnHeaderRowNumber"] = curNum
 			marked[curNum] = None
+			cfg["columnHeaderRowNumber"] = curNum
 			# Translators: Announced when customizing column headers
 			ui.message(_("Row set as column header"))
-		cfg["markedRowNumbers"] = marked
 	
 	script_setColumnHeader.canPropagate = True
 	# Translators: The description of a command.
@@ -1335,11 +1333,10 @@ class TableManager(ScriptableObject):
 			# Translators: Reported when customizing row headers
 			ui.message(_("Row header disabled"))
 		else:
-			cfg["rowHeaderColumnNumber"] = curNum
 			marked[curNum] = None
+			cfg["rowHeaderColumnNumber"] = curNum
 			# Translators: Reported when customizing row headers
 			ui.message(_("Column set as row header"))
-		cfg["markedColumnNumbers"] = marked
 	
 	script_setRowHeader.canPropagate = True
 	# Translators: The description of a command.
@@ -1369,17 +1366,17 @@ class TableManager(ScriptableObject):
 			announce = marked[num]
 			if announce:
 				marked[num] = False
-				cfg["markedColumnNumbers"] = marked
+				cfg.save()
 				# Translators: Reported when toggling marked columns
 				ui.message(_("Column marked without announce"))
 				return
 			del marked[num]
-			cfg["markedColumnNumbers"] = marked
+			cfg.save()
 			# Translators: Reported when toggling marked columns
 			ui.message(_("Column unmarked"))
 			return
 		marked[num] = True
-		cfg["markedColumnNumbers"] = marked
+		cfg.save()
 		# Translators: Reported when toggling marked columns
 		ui.message(_("Column marked with announce"))
 	
@@ -1411,17 +1408,17 @@ class TableManager(ScriptableObject):
 			announce = marked[num]
 			if announce:
 				marked[num] = False
-				cfg["markedRowNumbers"] = marked
+				cfg.save()
 				# Translators: Reported when toggling marked rows
 				ui.message(_("Row marked without announce"))
 				return
 			del marked[num]
-			cfg["markedRowNumbers"] = marked
+			cfg.save()
 			# Translators: Reported when toggling marked rows
 			ui.message(_("Row unmarked"))
 			return
 		marked[num] = True
-		cfg["markedRowNumbers"] = marked
+		cfg.save()
 		# Translators: Reported when toggling marked rows
 		ui.message(_("Row marked with announce"))
 	

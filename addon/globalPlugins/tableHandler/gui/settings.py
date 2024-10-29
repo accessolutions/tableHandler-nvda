@@ -108,7 +108,7 @@ class TableHandlerSettingsPanel(SettingsPanel):
 		item = self.quickNav = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
-				"Single letter &quick navigation between tables"
+				"Single letter &quick navigation between tables "
 				"activates Table Mode"
 			))
 		)

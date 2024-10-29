@@ -250,34 +250,29 @@ class Menu(wx.Menu):
 	def onCustomizeColHeader(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		customHeaders = cfg["customColumnHeaders"].copy()
+		customHeaders = cfg["customColumnHeaders"]
 		num = cell.columnNumber
 		if num in customHeaders:
 			del customHeaders[num]
-			cfg["customColumnHeaders"] = customHeaders
+			cfg.save()
 			return
 		dlg = wx.TextEntryDialog(
 			gui.mainFrame,
 			# Translators: A prompt to enter a value
 			message=_("Enter a custom header for this column")
 		)
-		from logHandler import log
 		if dlg.ShowModal() == wx.ID_OK:
 			customHeaders[num] = dlg.Value
-			cfg["customColumnHeaders"] = customHeaders
-			log.info(f"new cfg: {cfg.data}")
 			cfg.save()
-		else:
-			log.info(f"unchanged")
 	
 	def onCustomizeRowHeader(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		customHeaders = cfg["customRowHeaders"].copy()
+		customHeaders = cfg["customRowHeaders"]
 		num = cell.rowNumber
 		if num in customHeaders:
 			del customHeaders[num]
-			cfg["customRowHeaders"] = customHeaders
+			cfg.save()
 			return
 		dlg = wx.TextEntryDialog(
 			gui.mainFrame,
@@ -286,56 +281,43 @@ class Menu(wx.Menu):
 		)
 		if dlg.ShowModal() == wx.ID_OK:
 			customHeaders[num] = dlg.Value
-			cfg["customRowHeaders"] = customHeaders
 			cfg.save()
 	
 	def onToggleMarkedCol_WithAnnounce(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedColumnNumbers"].copy()
-		num = cell.columnNumber
-		marked[num] = True
-		cfg["markedColumnNumbers"] = marked
+		cfg["markedColumnNumbers"][cell.columnNumber] = True
+		cfg.save()
 	
 	def onToggleMarkedCol_WithoutAnnounce(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedColumnNumbers"].copy()
-		num = cell.columnNumber
-		marked[num] = False
-		cfg["markedColumnNumbers"] = marked
+		cfg["markedColumnNumbers"][cell.columnNumber] = False
+		cfg.save()
 	
 	def onToggleMarkedCol_Unmarked(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedColumnNumbers"].copy()
-		num = cell.columnNumber
-		marked.pop(num, None)
-		cfg["markedColumnNumbers"] = marked
+		cfg["markedColumnNumbers"].pop(cell.columnNumber, None)
+		cfg.save()
 	
 	def onToggleMarkedRow_WithAnnounce(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedRowNumbers"].copy()
-		num = cell.rowNumber
-		marked[num] = True
-		cfg["markedRowNumbers"] = marked
+		cfg["markedRowNumbers"][cell.rowNumber] = True
+		cfg.save()
 	
 	def onToggleMarkedRow_WithoutAnnounce(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedRowNumbers"].copy()
-		num = cell.rowNumber
-		marked[num] = False
-		cfg["markedRowNumbers"] = marked
+		cfg["markedRowNumbers"][cell.rowNumber] = False
+		cfg.save()
 	
 	def onToggleMarkedRow_Unmarked(self, evt):
 		cell = gui.mainFrame.prevFocus
 		cfg = cell.table._tableConfig
-		marked = cfg["markedRowNumbers"].copy()
-		num = cell.rowNumber
-		marked.pop(num, None)
-		cfg["markedRowNumbers"] = marked
+		cfg["markedRowNumbers"].pop(cell.rowNumber, None)
+		cfg.save()
 	
 	def onPreferences(self, evt):
 		from gui.settingsDialogs import NVDASettingsDialog 

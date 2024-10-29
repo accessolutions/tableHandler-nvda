@@ -72,7 +72,7 @@ class ScriptWrapper:
 		# prevent recursion.
 		if name != "__name__":
 			override = self.override
-			if override:
+			if override and __name__ != "__doc__":
 				try:
 					return getattr(override, name)
 				except AttributeError:

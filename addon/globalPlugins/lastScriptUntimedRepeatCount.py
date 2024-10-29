@@ -1,5 +1,5 @@
 # globalPlugins/lastScriptUntimedRepeatCount.py
-# -*- coding: utf8 -*-
+# -*- coding: utf-8 -*-
 
 # This file is a utility module for NonVisual Desktop Access (NVDA)
 # Copyright (C) 2021-2024 Accessolutions (https://accessolutions.fr)

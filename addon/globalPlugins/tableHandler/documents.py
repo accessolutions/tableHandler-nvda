@@ -26,6 +26,7 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
+from collections import namedtuple
 from itertools import chain
 import os.path
 import weakref
@@ -52,7 +53,7 @@ import vision
 
 from globalPlugins.withSpeechMuted import speechMuted
 
-from . import TableHandler, getTableConfig, getTableConfigKey, getTableManager
+from . import TableHandler, getTableConfig, getTableConfigKey, getTableManager, setDefaultTableKwargs
 from .coreUtils import Break, catchAll, getDynamicClass, queueCall
 from .fakeObjects import FakeObject
 from .fakeObjects.table import (
@@ -72,38 +73,37 @@ addonHandler.initTranslation()
 SCRIPT_CATEGORY = "TableHandler"
 
 
+TableCellCoords = namedtuple(
+	"TableCellCoords",
+	("tableID", "isLayout", "rowNum", "colNum", "rowSpan", "colSpan")
+)
+
+
 class DocumentTableHandler(TableHandler):
 	
-	def getTableConfigKey(self, nextHandler=None, **kwargs):
+	def getTableConfigKey(self, nextHandler, **kwargs):
+		"""Retrieve a key based on the column headers
+		
+		This implementation targets well-formed tables (layout or not).
+		It creates a temporary default TableManager in order to fetch the headers.
+		If no headers are defined, it considers as headers the basic text of the
+		first row.
+		If it fails, it returns the result of the next handler (which is
+		normally the key of the default configuration: "")
+		"""
+		if kwargs.get("debug"):
+			log.info(f">>> DTH.getTableConfigKey({kwargs})")
 		try:
-			ti = kwargs.get("ti")
-			info = kwargs.get("info")
-			if not ti:
-				ti = self.__getTreeInterceptor(info)
-			if not isinstance(ti, TableHandlerTreeInterceptor):
-				log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
-				raise Break()
-			if not info:
-				kwargs["info"] = ti.selection
-			if not kwargs.get("tableCellCoords"):
-				assert info is not None
-				try:
-					tableCellCoords = ti._getTableCellCoordsIncludingLayoutTables(info)
-				except LookupError:
-					if kwargs.get("debug"):
-						log.exception()
-					raise Break
-				kwargs["tableCellCoords"] = tableCellCoords
-				return getTableConfigKey(**kwargs)
-			tempKwargs = kwargs.copy()
-			tempKwargs["tableConfigKey"] = "default"
-			table = getTableManager(**tempKwargs)
+			kwargs["cache"] = False
+			kwargs["key"] = ""
+			if kwargs.get("debug"):
+				log.info(f"DTH.getTableConfigKey - Retrieve default TM")
+			table = getTableManager(**kwargs)
+			if kwargs.get("debug"):
+				log.info(f"DTH.getTableConfigKey - Default TM: {table}")
 			if not table:
 				raise Break
-			getattr(self, "tableManagers", {}).pop(table.tableID, None)
-			if not table._tableConfig:
-				raise Exception("wut?")
-			table.__dict__.setdefault("_trackingInfo", []).append("temp")
+			table.__dict__.setdefault("_trackingInfo", []).append("DTH.getTableConfigKey")
 			cell = table._firstDataCell
 			if not cell:
 				del cell, table
@@ -112,7 +112,10 @@ class DocumentTableHandler(TableHandler):
 			headers = [cell.columnHeaderText for colNum, colSpan, cell in row._iterCells()]
 			if any(headers):
 				del cell, row, table
-				return {"columnHeaders": headers}
+				key = {"columnHeaders": headers}
+				if kwargs.get("debug"):
+					log.info(f"<<< DTH.getTableConfigKey: {key}")
+				return key
 			row = table._getRow(1)
 			if not row:
 				del cell, row, table
@@ -120,67 +123,71 @@ class DocumentTableHandler(TableHandler):
 			headers = [cell.basicText for colNum, colSpan, cell in row._iterCells()]
 			if any(headers):
 				del cell, row, table
-				return {"columnHeaders": headers}
+				key = {"columnHeaders": headers}
+				if kwargs.get("debug"):
+					log.info(f"<<< DTH.getTableConfigKey: {key}")
+				return key
 		except Break:
 			pass
 		except Exception:
-			log.exception("getTableConfigKey(kwargs={!r})".format(kwargs))
+			log.exception(f"getTableConfigKey(kwargs={kwargs!r})", stack_info=True)
 			raise
-		return nextHandler(**kwargs)
-	
-	def getTableManager(self, nextHandler=None, **kwargs):
 		if kwargs.get("debug"):
-			log.info(f"DTH.getTableManager({kwargs})")
-		ti = kwargs.get("ti")
-		info = kwargs.get("info")
-		if not ti:
-			ti = self.__getTreeInterceptor(info)
-		if not isinstance(ti, TableHandlerTreeInterceptor):
-			log.warning("Unexpected TreeInterceptor implementation (MRO={!r})".format(ti.__class__.__mro__))
-			return None
-		tableCellCoords = kwargs.get("tableCellCoords")
-		if not tableCellCoords:
-			func = ti._getTableCellCoordsIncludingLayoutTables
-			try:
-				kwargs["tableCellCoords"] = tableCellCoords = func(info)
-			except LookupError:
-				if kwargs.get("debug"):
-					log.exception()
-				return None
+			log.info(f"DTH.getTableConfigKey - Next handler")
+		key = nextHandler(**kwargs)
+		if kwargs.get("debug"):
+			log.info(f"<<< DTH.getTableConfigKey: {key} (From next handler)")
+		return key
+	
+	def getTableManager(self, nextHandler, **kwargs):
+		"""Retrieve a TableManager for the given table ID.
+		"""
+		if kwargs.get("debug"):
+			log.info(f">>> DTH.getTableManager({kwargs})")
+		
+		tableID = kwargs.get("tableID")
+		if tableID is None:
 			if kwargs.get("debug"):
-				log.info(f"dispatching getTableManager({kwargs})")
-			return getTableManager(**kwargs)
-		tableID, isLayout, rowNum, colNum, rowSpan, colSpan = tableCellCoords
-		tableConfig = kwargs.get("tableConfig")
-		if not tableConfig:
-			tableConfigKey = kwargs.get("tableConfigKey")
-			if not tableConfigKey:
-				kwargs["tableConfigKey"] = tableConfigKey = getTableConfigKey(**kwargs)
-			kwargs["tableConfig"] = tableConfig = getTableConfig(**kwargs)
-		table = kwargs.get("tableClass", DocumentTableManager)(
-			_tableConfig=tableConfig,
-			tableID=tableID,
+				log.info(f"<<< DTH.getTableManager: None (no tableID)")
+			return None
+		cfg = kwargs.get("cfg")
+		if cfg is None:
+			cfg = getTableConfig(**kwargs)
+		ti = kwargs["ti"]
+		table = kwargs.get("tableManagerClass", DocumentTableManager)(
+			_tableConfig=cfg,
+			tableID=kwargs["tableID"],
 			ti=ti,
 			parent=ti.rootNVDAObject,
-			startPos=info
+			startPos=kwargs["info"],
 		)
 		if kwargs.get("setPosition"):
+			rowNum = kwargs.get("rowNum")
+			colNum = kwargs.get("colNum")
+			if rowNum is None and colNum is None:
+				raise Exception("setPosition: Unspecified coordinates")
+			elif rowNum is None:
+				raise Exception("setPosition: Unspecified row number")
+			elif colNum is None:
+				raise Exception("setPosition: Unspecified column number")
 			table._currentRowNumber = rowNum
 			table._currentColumnNumber = colNum
+		if kwargs.get("debug"):
+			log.info(f"<<< DTH.getTableManager: {table}")
 		return table
 	
-	def __getTreeInterceptor(self, info):
-		if isinstance(self, TreeInterceptor):
-			return self
-		if not info:
-			return None
-		try:
-			if isinstance(info.obj, TreeInterceptor):
-				return info.obj
-			else:
-				return info.obj.treeInterceptor
-		except AttributeError:
-			log.exception()
+# 	def __getTreeInterceptor(self, info):
+# 		if isinstance(self, TreeInterceptor):
+# 			return self
+# 		if not info:
+# 			return None
+# 		try:
+# 			if isinstance(info.obj, TreeInterceptor):
+# 				return info.obj
+# 			else:
+# 				return info.obj.treeInterceptor
+# 		except AttributeError:
+# 			log.exception()
 
 
 class PassThrough:
@@ -373,7 +380,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def _set_passThrough(self, state):
 		if self._passThrough == state:
 			return
-		#log.info(f"_set_passThrough({state}) was {self._passThrough}", stack_info=(False and state is True))
+		#log.info(f">>> _set_passThrough({state}) was {self._passThrough}", stack_info=(False and state is True))
 		if state == TABLE_MODE:
 			table = self._currentTable
 			if (
@@ -389,6 +396,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 					table._setPosition(self.selection)
 					#log.info(f"after setPosition: {table._currentRowNumber, table._currentColumnNumber}")
 				except ValueError:
+					log.exception()
 					table.__dict__.setdefault("_trackingInfo", []).append("dropped by _set_passThrough")
 					table = self._currentTable = None
 			#elif table:
@@ -424,7 +432,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				state = FOCUS_MODE_FROM_TABLE_MODE
 		elif self.passThrough == TABLE_MODE:
 			self._passThrough = None
-			#obj = self._currentTable.parent
 			obj = self._lastFocusObj
 			if not obj:
 				obj = NVDAObjects.NVDAObject.objectWithFocus()
@@ -437,10 +444,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			eventHandler.lastQueuedFocusObject = obj
 			api.setFocusObject(obj)
 			api.setNavigatorObject(obj)
-		#log.info(f">>> _set_passThrough({state}) was {self._passThrough}")
+		#log.info(f"_set_passThrough({state}) now {self._passThrough}")
 		super()._set_passThrough(state)
 	
 	def _set_selection(self, info, reason=controlTypes.OutputReason.CARET):
+		#log.info(f"_set_selection({info}, {reason})")
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
 				super()._set_selection(info, reason=controlTypes.OutputReason.CARET)
@@ -452,6 +460,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				if cell:
 					cell.setFocus()
 					return
+#		elif reason == controlTypes.OutputReason.QUICKNAV and self.passThrough == TABLE_MODE:
+#			self.passThrough = False
 		try:
 			super()._set_selection(info, reason=reason)
 		except Exception:
@@ -461,11 +471,16 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		def set_selection_trailer():
 			#log.info(f"set_selection_trailer: {self.passThrough} {api.getFocusObject()}")
 			oldTable = self._currentTable
-			table = self._currentTable = getTableManager(info=self.selection, setPosition=True)
+			try:
+				table = self._currentTable = getTableManager(ti=self, info=self.selection, setPosition=True)
+			except Exception:
+				log.exception()
+				table = None
 			if oldTable and table is not oldTable:
 				oldTable.__dict__.setdefault("_trackingInfo", []).append("dropped by set_selection_trailer")
 			del oldTable
 			if not table and self.passThrough == TABLE_MODE:
+				#log.info(f"set_selection_trailer: Canceling table mode")
 				self.passThrough = False
 				queueCall(reportPassThrough, self)
 			del table
@@ -511,58 +526,113 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			func = TableHandlerTreeInterceptorScriptWrapper(self, func)
 		return func
 	
-	def getTableManager(self, nextHandler=None, **kwargs):
+	def getTableConfigKey(self, nextHandler, **kwargs):
 		if kwargs.get("debug"):
-			log.info(f"TI.getTableManager({kwargs})")
-		info = kwargs.get("info")
-		if info is None:
-			kwargs["info"] = info = self.selection
-		setPosition = kwargs.get("setPosition")
-		tableCellCoords = kwargs.get("tableCellCoords")
-		if tableCellCoords:
-			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = tableCellCoords
+			log.info(f">>> THTI.getTableConfigKey({kwargs})")
+		self.setDefaultTableKwargs(kwargs)
+		res = super().getTableConfigKey(nextHandler=nextHandler, **kwargs)
+		if kwargs.get("debug"):
+			log.info(f"<<< THTI.getTableConfigKey: {res}")
+		return res
+	
+	def getTableManager(self, nextHandler, **kwargs):
+		if kwargs.get("debug"):
+			log.info(f">>> THTI.getTableManager({kwargs})")
+		self.setDefaultTableKwargs(kwargs)
+		tableID = kwargs.get("tableID")
+		if tableID is not None:
 			if not kwargs.get("refresh"):
 				table = self._tableManagers.get(tableID)
 				if table:
-					if (
-						"tableConfigKey" not in kwargs
-						or table._tableConfig.key == kwargs["tableConfigKey"]
-					):
-						if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
+					key = kwargs.get("key")
+					if key in (None, table._tableConfig.key):
+						if kwargs.get("setPosition"):
+							rowNum = kwargs.get("rowNum")
+							colNum = kwargs.get("colNum")
 							if kwargs.get("debug"):
 								log.info(
-									f"TI.getTableManager - Retreived from cache: "
+									f"THTI.getTableManager - Retrieved from cache: "
 									f" {table._currentRowNumber, table._currentColumnNumber}"
 									f" -> {rowNum, colNum}"
 								)
-							table._currentRowNumber = rowNum
-							table._currentColumnNumber = colNum
+							if rowNum is not None:
+								table._currentRowNumber = rowNum
+							else:
+								log.error("setPosition: Unspecified row number")
+							if colNum is not None:
+								table._currentColumnNumber = colNum
+							else:
+								log.error("setPosition: Unspecified column number")
+						if kwargs.get("debug"):
+							log.info(f"<<< THTI.getTableManager: {table} (from cache)")
 						return table
 					else:
 						if kwargs.get("debug"):
-							log.info(f"TI.getTableManager: {tableConfigKey} != {kwargs['tableConfigKey']}")
+							log.info(f"THTI.getTableManager: {table._tableConfig.key} != {kwargs.get('key')}")
 						table.__dict__.setdefault("_trackingInfo", []).append("dropped from cache")
 						if not self._tableManagers.pop(tableID, None):
-							log.error("Table was not in cache!")
+							log.error("Table has been asynchronously dropped from cache!")
 						if self._currentTable is table:
 							table._trackingInfo.append("was current")
 						del table
 				elif kwargs.get("debug"):
-					log.info(f"TI.getTableManager - Not in cache: {tableID}")
+					log.info(f"THTI.getTableManager - Not in cache: {tableID}")
 		elif kwargs.get("debug"):
-			log.info(f"TI.getTableManager - No tableCellCoords (yet)")
+			log.info(f"THTI.getTableManager - No tableCellCoords (yet)")
+		kwargs["ti"] = self
 		table = super().getTableManager(nextHandler=nextHandler, **kwargs)
 		if table:
-			self._tableManagers[table.tableID] = table
-			if setPosition and tableCellCoords and rowNum is not None and colNum is not None:
-				table._currentRowNumber = rowNum
-				table._currentColumnNumber = colNum
+			if kwargs.get("cache", True):
+				self._tableManagers[table.tableID] = table
+			if kwargs.get("setPosition"):
+				rowNum = kwargs.get("rowNum")
+				colNum = kwargs.get("colNum")
+				if rowNum is not None:
+					table._currentRowNumber = rowNum
+				else:
+					log.error("setPosition: Unspecified row number")
+				if colNum is not None:
+					table._currentColumnNumber = colNum
+				else:
+					log.error("setPosition: Unspecified column number")
+			if kwargs.get("debug"):
+				log.info(f"<<< THTI.getTableManager: {table} (from super)")
 			return table
-		return nextHandler(**kwargs)
+		if kwargs.get("debug"):
+			log.info(f"THTI.getTableManager - next handler")
+		res = nextHandler(**kwargs)
+		if kwargs.get("debug"):
+			log.info(f"<<< THTI.getTableManager: {res} (from next handler)")
+		return res
+	
+	def setDefaultTableKwargs(self, kwargs):
+		kwargs["ti"] = self
+		info = kwargs.get("info")
+		if info is None:
+			info = kwargs["info"] = self.selection
+		if (
+			kwargs.get("tableID") is None
+			or (kwargs.get("setPosition") and (
+				kwargs.get("rowNum") is None or kwargs.get("colNum") is None
+			))
+		):
+			coords = kwargs.get("tableCellCoords")
+			if coords is None:
+				try:
+					coords = self._getTableCellCoordsIncludingLayoutTables(info)
+				except LookupError:
+					if kwargs.get("debug"):
+						log.exception()
+					coords = False  # Avoid checking multiple times at same position
+				kwargs["tableCellCoords"] = coords
+			if coords:
+				for name in ("tableID", "rowNum", "colNum"):
+					if kwargs.get(name) is None:
+						kwargs[name] = getattr(coords, name)
 	
 	def makeTextInfo(self, position):
 		if isinstance(position, FakeObject):
-			log.error("TI asked for a fake object!", stack_info=True)
+			log.error("THTI asked for a fake object!", stack_info=True)
 			return position.makeTextInfo(position)
 		return super().makeTextInfo(position)
 	
@@ -613,7 +683,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		@param info:  the position where the table cell should be looked for.
 		@type info: L{textInfos.TextInfo}
 		@returns: a tuple of table ID, is layout, row number, column number, row span, and column span.
-		@rtype: tuple
+		@rtype: TableCellCoords (namedtuple)
 		@raises: LookupError if there is no table cell at this position.
 		"""
 		if info.isCollapsed:
@@ -640,7 +710,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				break
 		else:
 			raise LookupError("Not in a table cell")
-		return (
+		return TableCellCoords(
 			tableID,
 			tableID in layoutIDs,
 			attrs.get("table-rownumber"),
@@ -658,7 +728,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		rowNum = table._currentRowNumber
 		colNum = table._currentColumnNumber
 		#log.info(f"updating from {rowNum, colNum}")
-		table = getTableManager(info=self.selection, setPosition=True, refresh=True)
+		table = getTableManager(ti=self, info=self.selection, setPosition=True, refresh=True)
 		if table:
 			#log.info(f"updated at {rowNum, colNum}")
 			table._currentRowNumber = rowNum
@@ -666,7 +736,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			cell = table._currentCell
 			if not cell:
 				log.warning(f"Could not retrieve current cell {table._currentRowNumber, table._currentColumnNumber}")
-				table = getTableManager(info=self.selection, setPosition=True, refresh=True)
+				table = getTableManager(ti=self, info=self.selection, setPosition=True, refresh=True)
 				if not table:
 					log.warning(f"Second table fetch failed")
 					return
@@ -746,7 +816,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		if not self.isAlive:
 			from virtualBuffers.gecko_ia2 import Gecko_ia2
 			if isinstance(self, Gecko_ia2):
-				log.info("TreeInterceptor is dead")
+				#log.info("TreeInterceptor is dead")
 				return treeInterceptorHandler.killTreeInterceptor(self)
 		if self.passThrough == TABLE_MODE:
 			# Handled in `_handleUpdate`
@@ -831,6 +901,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			super().script_nextTable(gesture)
 			return
 		if self.passThrough is False and self._currentTable:
+			#log.info(f"script_nextTable: Table mode at current position")
 			self.passThrough = TABLE_MODE
 			queueCall(reportPassThrough, self)
 			return
@@ -839,14 +910,22 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			super().script_nextTable(gesture)
 		
 		def nextTable_trailer():
+			#log.info(f"script_nextTable: Trailer start")
+			if self.passThrough == TABLE_MODE:
+				# Otherwise _set_passThrough short-circuits and doesn't focus the new table
+				# when navigating from table to table in table mode.
+				self._passThrough = False
 			try:
 				self.passThrough = TABLE_MODE
 			except Exception:
+				log.exception()
 				pass
 			queueCall(reportPassThrough, self)
 			if bookmark == self.selection.bookmark:
 				# No movement, quick-nav failed, speak the failure announce
+				#log.info(f"script_nextTable: No movement")
 				ctx.speakMuted()
+			#log.info(f"script_nextTable: Trailer end")
 		
 		queueCall(nextTable_trailer)
 	
@@ -862,6 +941,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			super().script_previousTable(gesture)
 		
 		def previousTable_trailer():
+			if self.passThrough == TABLE_MODE:
+				# Otherwise _set_passThrough short-circuits and doesn't focus the new table
+				# when navigating from table to table in table mode.
+				self._passThrough = False
 			try:
 				self.passThrough = TABLE_MODE
 			except Exception:
@@ -1084,15 +1167,12 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 	
 	def _setPosition(self, info):
 		#log.info(f"_setPosition({info._startOffset})", stack_info=True)
-		func = self.ti._getTableCellCoordsIncludingLayoutTables
-		tableID = None
-		try:
-			tableID, isLayout, rowNum, colNum, rowSpan, colSpan = func(info)
-		except LookupError:
-			pass
-		if tableID is None or tableID != self.tableID:
+		coords = self.ti._getTableCellCoordsIncludingLayoutTables(info)
+		if coords.tableID != self.tableID:
 			raise ValueError("The given position is not inside this table")
 		cell = None
+		rowNum = coords.rowNum
+		colNum = coords.colNum
 		if rowNum is not None and colNum is not None:
 			self._currentRowNumber = rowNum
 			self._currentColumnNumber = colNum

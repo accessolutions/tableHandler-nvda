@@ -35,7 +35,7 @@ import braille
 import config
 import controlTypes
 from logHandler import log
-from scriptHandler import getLastScriptRepeatCount
+from scriptHandler import getLastScriptRepeatCount, script
 import speech
 
 from ..behaviors import Cell, Row, TableManager
@@ -343,9 +343,6 @@ class FakeRow(Row, FakeObject):
 		super().__init__(*args, rowNumber=rowNumber, **kwargs)
 		self._cache = {}
 	
-	def _get_columnCount(self):
-		return self.table.columnCount
-	
 	def _get__cellAccess(self):
 		return getattr(self.table, "_cellAccess", CELL_ACCESS_CHILDREN)
 		
@@ -395,8 +392,12 @@ class TextInfoDrivenFakeRow(FakeRow):
 					# This discrepency is most likely due to an update of the document.
 					self._cache.clear()
 					return self._getCell(columnNumber, refresh=True)
-				if oldColNum <= columnNumber < oldColNum + colSpans[oldColNum]:
-					return oldCell
+				try:
+					if oldColNum <= columnNumber < oldColNum + colSpans[oldColNum]:
+						return oldCell
+				except Exception:
+					log.error(f"oldColNum={oldColNum!r}, columnNumber={columnNumber!r}, colSpans[oldColNum]={colSpans[oldColNum]}")
+					raise
 				del self._cache[oldCell]
 			newCell = newColNum = None
 			for colNum, cell in cache.items():
@@ -512,6 +513,33 @@ class StaticFakeTableManager(FakeTableManager):
 		self._headers = headers
 		self._data = data
 	
+	def getScript(self, gesture):
+		if gesture is getattr(self, "_getScript_recursion", None):
+			# Prevent recursion when looking for a global command
+			return None
+		func = super().getScript(gesture)
+		if func:
+			return func
+		# Search for a global command bound to this gesture
+		from scriptHandler import findScript
+		self._getScript_recursion = gesture
+		func = findScript(gesture)
+		if func:
+			return func
+		# No object script nor global command bound: Trap the input.
+		return self.script_noop
+	
+	@script(gesture="kb:escape", canPropagate=True)
+	def script_escape(self, gesture):
+		obj = NVDAObject.objectWithFocus()
+		api.setFocusObject(obj)
+		obj.reportFocus()
+	
+	@script(canPropagate=True)
+	def script_noop(self, gesture):
+		import wx
+		wx.Bell()
+	
 	def _get_columnCount(self):
 		return max(len(row) for row in self._data)
 	
@@ -523,6 +551,7 @@ class StaticFakeTableManager(FakeTableManager):
 	
 	def _getColumnHeaderText(self, columnNumber):
 		return self._headers[columnNumber - 1]
+	
 
 
 def test():
