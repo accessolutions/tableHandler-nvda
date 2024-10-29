@@ -251,6 +251,8 @@ class TextInfoDrivenFakeCell(FakeCell):
 		if field is None:
 			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLECOLUMNHEADER)
 		if field is None:
+			field = getField(info, "controlStart", role=controlTypes.ROLE_TABLEROWHEADER)
+		if field is None:
 			from pprint import pformat
 			log.error(f"twf={pformat(info.getTextWithFields(), indent=4)}", stack_info=True)
 		return field
