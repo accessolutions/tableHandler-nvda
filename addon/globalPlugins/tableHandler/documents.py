@@ -164,12 +164,14 @@ class DocumentTableHandler(TableHandler):
 		if kwargs.get("setPosition"):
 			rowNum = kwargs.get("rowNum")
 			colNum = kwargs.get("colNum")
-			if rowNum is None and colNum is None:
-				raise Exception("setPosition: Unspecified coordinates")
-			elif rowNum is None:
-				raise Exception("setPosition: Unspecified row number")
-			elif colNum is None:
-				raise Exception("setPosition: Unspecified column number")
+			if rowNum is not None:
+				table._currentRowNumber = rowNum
+			else:
+				log.error("setPosition: Unspecified row number")
+			if colNum is not None:
+				table._currentColumnNumber = colNum
+			else:
+				log.error("setPosition: Unspecified column number")
 			table._currentRowNumber = rowNum
 			table._currentColumnNumber = colNum
 		if kwargs.get("debug"):
@@ -454,7 +456,11 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				super()._set_selection(info, reason=controlTypes.OutputReason.CARET)
 			return
 		elif reason == controlTypes.OutputReason.FOCUS and self.passThrough == TABLE_MODE:
-			table = self._currentTable
+			try:
+				table = self._currentTable
+			except Exception:
+				log.exception()
+				table = None
 			if table:
 				cell = table._currentCell
 				if cell:
