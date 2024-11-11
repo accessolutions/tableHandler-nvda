@@ -39,7 +39,6 @@ from globalPlugins.webAccess.webModuleHandler import WebModule
 from globalPlugins.withSpeechMuted import speechMuted
 
 from . import TableConfig, getTableConfig, getTableConfigKey, getTableManager
-from .coreUtils import Break
 from .documents import (
 	DocumentFakeCell,
 	DocumentFakeRow,
@@ -56,14 +55,9 @@ addonHandler.initTranslation()
 class TableHandlerWebModuleScriptWrapper(TableHandlerTreeInterceptorScriptWrapper):
 	
 	def __init__(self, ti, script, **defaults):
-		super().__init__(ti, script, **defaults)
-		self.arg = "script_"
-	
-	def override(self, gesture, *args, script_=None, **kwargs):
 		# The base class uses the default "script" arg, but it conflicts with WebAccess' actions which also
 		# receives a "script" arg.
-		script = lambda *args_, **kwargs_: script_(gesture, *args, **kwargs)
-		super().override(gesture, script=script)
+		super().__init__(ti, script, arg="script_", **defaults)
 
 
 class TableHandlerWebModule(WebModule, DocumentTableHandler):
@@ -238,8 +232,12 @@ class TableHandlerResult(SingleNodeResult):
 	
 	@overrides(SingleNodeResult.script_moveto)
 	def script_moveto(self, gesture, **kwargs):
+		script = super().script_moveto
+		from globalPlugins.webAccess.ruleHandler import CustomActionDispatcher
+		if isinstance(script, CustomActionDispatcher):
+			script = script.standardFunc.__get__(self)
 		with speechMuted():
-			super().script_moveto(gesture, **kwargs)
+			script(gesture, **kwargs)
 	
 	script_moveto.enableTableModeAfter = True
 

@@ -265,7 +265,8 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 		# NVDA Input Help looks for this attribute
 		self.__self__ = ti
 	
-	def override(self, gesture, script=None, **kwargs):
+	def override(self, *args, **kwargs):
+		script = kwargs.pop(self.arg)
 		disableTableModeBefore = self.disableTableModeBefore
 		enableTableModeAfter = self.enableTableModeAfter
 		tryTableModeAfterIfBrowseMode = self.tryTableModeAfterIfBrowseMode
@@ -306,7 +307,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 			restoreTableModeAfterIfBrowseMode,
 			restoreTableModeAfterIfNotMoved
 		)):
-			script(gesture, **kwargs)
+			script(*args, **kwargs)
 			return
 		
 		passThroughBefore = ti.passThrough
@@ -318,7 +319,8 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 		))
 		if checkRestore:
 			before = ti.selection.copy()
-		script(gesture, **kwargs)
+		
+		script(*args, **kwargs)
 		
 		if not any((tryTableModeAfterIfBrowseMode, enableTableModeAfter, checkRestore)):
 			return
@@ -342,6 +344,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 				ti.passThrough = TABLE_MODE
 				queueCall(reportPassThrough, ti)
 				return
+			
 			if tableModeBefore and restoreTableModeAfterIfNotMoved:
 				after = ti.selection.copy()
 				if (
