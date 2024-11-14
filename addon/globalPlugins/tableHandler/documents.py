@@ -49,6 +49,7 @@ import speech
 import textInfos
 from treeInterceptorHandler import TreeInterceptor
 import ui
+from virtualBuffers import VirtualBuffer
 import vision
 
 from globalPlugins.withSpeechMuted import speechMuted
@@ -247,7 +248,8 @@ class TableHandlerDocument(AutoPropertyObject):
 	def _get_treeInterceptorClass(self):
 		# Might raise NotImplementedError on purpose.
 		superCls = super().treeInterceptorClass
-		if not issubclass(superCls, BrowseModeDocumentTreeInterceptor):
+		# See DocumentTableManager._iterCellsTextInfos
+		if not issubclass(superCls, VirtualBuffer):
 			return superCls
 		return getDynamicClass((TableHandlerTreeInterceptor, superCls))
 
@@ -1158,6 +1160,9 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		))
 	
 	def _iterCellsTextInfos(self, rowNumber):
+		# TODO: Provide a generic BrowseModeDocumentTreeInterceptor implementation
+		# to add support of eg. MS Word.
+		# tableUtils.iterVirtualBufferTableCellsSafe uses VirtualBuffer._iterTableCells
 		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)
 	
 	@catchAll(log)
