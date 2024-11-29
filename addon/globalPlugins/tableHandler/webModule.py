@@ -182,6 +182,8 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 		if kwargs.get("cfg") is None:
 			kwargs["cfg"] = getTableConfig(**kwargs)
 		res = nextHandler(**kwargs)
+		if result is not None and isinstance(res, WebModuleTableManager):
+			res.result = result
 		if kwargs.get("debug"):
 			log.info(f"<<< THWM.getTableManager: {res} / {res!r}")
 		return res
@@ -246,13 +248,32 @@ class TableHandlerResult(SingleNodeResult):
 class WebModuleTableManager(DocumentTableManager):
 	
 	def __init__(self, webModule, result, *args, **kwargs):
-		self.result = weakref.proxy(result)
+		self.result = result
 		self.webModule = weakref.proxy(webModule)
 		super().__init__(*args, **kwargs)
 	
-	@property
-	def RowClass(self):
+	def _get_RowClass(self):
 		return self.webModule.getRowClass(self.result)
+	
+	def _get_result(self):
+		result = self._result()
+		if result is None:
+			try:
+				result = self.webModule.ruleManager.getRule(
+					self.ruleName, layer=self.ruleLayer
+				).getResults()[self.index - 1]  # Result index is 1-based
+			except Exception as e:
+				# TODO: Proper Table Mode deactivation
+				raise Exception("This table's result no longer exists") from e
+			self._result = weakref.ref(result)
+		return result
+	
+	def _set_result(self, result):
+		rule = result.rule
+		self.ruleName = rule.name
+		self.ruleLayer = rule.layer
+		self.resultIndex = result.index
+		self._result = weakref.ref(result)
 	
 	def _get_rowCount(self):
 		return self.webModule.getRowCount(
