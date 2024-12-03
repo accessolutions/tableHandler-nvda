@@ -26,7 +26,16 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
+from typing import Optional
+import sys
+
 import textInfos.offsets
+
+
+if sys.version_info[1] < 9:
+    from typing import Mapping, Sequence
+else:
+    from collections.abc import Mapping, Sequence
 
 
 class LaxSelectionTextInfo(textInfos.offsets.OffsetsTextInfo):
@@ -40,6 +49,129 @@ class LaxSelectionTextInfo(textInfos.offsets.OffsetsTextInfo):
 			return super().selectionOffsets
 		except NotImplementedError:
 			return 0, 0
+
+
+class StaticTextInfo(LaxSelectionTextInfo):
+	"""A `LaxSelectionTextInfo` presenting the text and fields provided at initialization.
+	
+	Allows to present richly formatted forged content.
+	"""
+	
+	# Text is already provided as Python str.
+	encoding = None
+	
+	def __init__(self, obj, position, textWithFields: textInfos.TextInfo.TextWithFieldsT):
+		nestingLevel = 0
+		offset = 0
+		lineOffsets = self._lineOffsets = []
+		for textOrField in textWithFields:
+			if isinstance(textOrField, textInfos.FieldCommand):
+				field = textOrField
+				if field.command == "controlStart":
+					nestingLevel += 1
+				elif field.command == "controlEnd":
+					nestingLevel -= 1
+					if nestingLevel < 0:
+						raise ValueError("textWithFields contains unmatched controlEnd")
+				continue
+			assert isinstance(textOrField, str)
+			text = textOrField
+			chunks = text.split("\n")
+			while len(chunks) > 1:
+				chunk = chunks.pop(0)
+				offset += len(chunk)
+				lineOffset.append(chunk)
+			offset += len(chunks[0])
+		lineOffsets.append(offset)		
+		if nestingLevel > 0:
+			raise ValueError("textWithFields contains unmatched controlStart")
+		self._textWithFields: textInfos.TextInfo.TextWithFieldsT = textWithFields
+		super().__init__(obj, position)
+	
+	def copy(self):
+		return self.__class__(self.obj, self.bookmark, self._textWithFields)
+	
+	def getTextWithFields(self, formatConfig: Optional[Mapping] = None) -> textInfos.TextInfo.TextWithFieldsT:
+		start = self._startOffset
+		end = self._endOffset
+		if start == end:
+			return []
+		return self._getFieldsInRange(start, end)
+	
+	def _getFieldsInRange(self, start: int, end: int) -> textInfos.TextInfo.TextWithFieldsT:
+		twf: textInfos.TextInfo.TextWithFieldsT = []
+		offset = 0
+		inRange = False
+		unclosedControlStartIndexes = []
+		rangeStartIndex = rangeEndIndex = None
+		for textOrField in self._textWithFields:
+			if isinstance(textOrField, textInfos.FieldCommand):
+				field = textOrField
+				if field.command == "controlStart":
+					unclosedControlStartIndexes.append(len(twf))
+					if rangeEndIndex is not None:
+						continue
+				elif field.command == "controlEnd":
+					controlStartIndex = unclosedControlStartIndexes.pop()
+					if rangeStartIndex is None:
+						del twf[controlStartIndex]
+						continue
+					if rangeEndIndex is not None and controlStartIndex >= rangeEndIndex:
+						continue
+				elif field.command == "formatChange" and rangeEndIndex is not None:
+					continue
+				twf.append(field)
+				continue
+			assert isinstance(textOrField, str)
+			if rangeEndIndex is not None:
+				continue
+			text = textOrField
+			chunkStart = max(0, start - offset)
+			chunkEnd = max(0, end - offset)
+			chunk = text[chunkStart:chunkEnd]
+			if chunk:
+				if rangeStartIndex is None:
+					rangeStartIndex = len(twf)
+				twf.append(chunk)
+			offset += len(text)
+			if end not in (None, -1) and offset >= end:
+				rangeEndIndex = len(twf)
+		return twf
+	
+	def _getLineOffsets(self, offset):
+		start = end = 0
+		for candidate in self._lineOffsets:
+			if candidate <= offset:
+				start = candidate
+			elif candidate > offset:
+				end = candidate
+				break
+		else:
+			# Mimic the behavior of OffsetsTextInfo when offset exceeds
+			# the story length.
+			end = self._lineOffsets[-1]
+		return start, end
+	
+	def _getTextRange(self, start, end):
+		return "".join(
+			textOrField
+			for textOrField in self._getFieldsInRange(start, end)
+			if isinstance(textOrField, str)
+		)
+	
+	def _getStoryText(self):
+		return "".join(
+			textOrField
+			for textOrField in self._textWithFields
+			if isinstance(textOrField, str)
+		)
+
+	def _getStoryLength(self):
+		return sum(
+			len(textOrField)
+			for textOrField in self._textWithFields
+			if isinstance(textOrField, str)
+		)
 
 
 class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
