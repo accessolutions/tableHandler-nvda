@@ -211,7 +211,7 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	def getColumnHeaderText(self, result, columnNumber, nextHandler):
 		return nextHandler()
 	
-	def makeCellTextInfo(self, result, rowNumber, columnNumber, position, nextHandler):
+	def makeCellTextInfo(self, obj, position, result, rowNumber, columnNumber, nextHandler):
 		return nextHandler()
 
 
@@ -313,9 +313,10 @@ class WebModuleFakeCell(DocumentFakeCell):
 	
 	def makeTextInfo(self, position):
 		return self.table.webModule.makeCellTextInfo(
+			self,
+			position,
 			self.table.result,
 			self.rowNumber,
 			self.columnNumber,
-			position,
 			nextHandler=lambda: super(WebModuleFakeCell, self).makeTextInfo(position)
 		)
