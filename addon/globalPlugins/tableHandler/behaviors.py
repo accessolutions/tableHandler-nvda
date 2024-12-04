@@ -949,6 +949,11 @@ class TableManager(ScriptableObject):
 		speech.cancelSpeech()
 		rowCount = self.rowCount
 		if rowCount is not None:
+			try:
+				firstDataCell = self._firstDataCell
+				rowCount -= firstDataCell.rowNumber - 1  # Row number is 1-based
+			except Exception:
+				pass
 			speech.speakMessage(_("Table with {rowCount} rows").format(rowCount=rowCount))
 		else:
 			speech.speakMessage(translate("table"))
