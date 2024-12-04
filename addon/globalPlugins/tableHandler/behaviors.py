@@ -606,6 +606,7 @@ class TableManager(ScriptableObject):
 	role = controlTypes.ROLE_TABLE
 	
 	def __init__(self, *args, **kwargs):
+		self._lastReportedCellStates = set()
 		super().__init__(*args, **kwargs)
 		self.initOverlayClass()
 	
@@ -758,10 +759,6 @@ class TableManager(ScriptableObject):
 	
 	@speechUnmutedFunction
 	def _reportCellChange(self, axis=AXIS_COLUMNS):
-# 		#@@@
-# 		speech.speakMessage("{}, {}".format(self._currentRowNumber, self._currentColumnNumber))
-# 		speech.speakTextInfo(self._currentCell.makeTextInfo(textInfos.POSITION_ALL))
-# 		return
 		curCell = self._currentCell
 		curRowNum = curCell.rowNumber
 		curColNum = curCell.columnNumber
@@ -778,6 +775,13 @@ class TableManager(ScriptableObject):
 			raise ValueError("axis={!r}".format(axis))
 		
 		content = []
+		
+		for state in curCell.states:
+			if state in self._lastReportedCellStates:
+				continue
+			if state == controlTypes.STATE_SELECTED:
+				content.append(controlTypes.stateLabels[state])
+		self._lastReportedCellStates = curCell.states
 		
 		def appendCell(num):
 			cell = getCell(num)

@@ -211,6 +211,9 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	def getColumnHeaderText(self, result, columnNumber, nextHandler):
 		return nextHandler()
 	
+	def getCellStates(self, result, rowNumber, columnNumber, nextHandler):
+		return nextHandler()
+	
 	def makeCellTextInfo(self, obj, position, result, rowNumber, columnNumber, nextHandler):
 		return nextHandler()
 
@@ -296,6 +299,14 @@ class WebModuleFakeRow(DocumentFakeRow):
 
 
 class WebModuleFakeCell(DocumentFakeCell):
+	
+	def _get_states(self):
+		return self.table.webModule.getCellStates(
+			self.table.result,
+			self.rowNumber,
+			self.columnNumber,
+			nextHandler=lambda: super(WebModuleFakeCell, self)._get_states()
+		)
 	
 	def getColumnHeaderText(self):
 		return self.table.webModule.getColumnHeaderText(
