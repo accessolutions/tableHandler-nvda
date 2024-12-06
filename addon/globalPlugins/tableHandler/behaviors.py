@@ -1200,7 +1200,25 @@ class TableManager(ScriptableObject):
 	script_moveToPreviousMarkedColumn.__doc__ = _("Go to the previous marked column")
 	
 	def script_moveToFirstRow(self, gesture):
-		self._moveToRow(1)
+		curCell = self._currentCell
+		if curCell is None:
+			ui.message(translate("Not in a table cell"))
+			return
+		curNum = self._currentRowNumber
+		firstCell = self._firstDataCell
+		firstNum = None
+		if firstCell is not None:
+			firstNum = firstCell.rowNumber
+			if firstNum < curNum and self._moveToRow(firstNum, notifyOnFailure=False):
+				return
+		# All columns might not have cells for all rows.
+		# Let's itteratively try the first reachable row.
+		for rowNum in range(curNum):
+			if self._moveToRow(rowNum, notifyOnFailure=False):
+				break
+		else:
+			# Repeat on failure
+			self._reportRowChange()
 	
 	script_moveToFirstRow.canPropagate = True
 	# Translators: The description of a command.

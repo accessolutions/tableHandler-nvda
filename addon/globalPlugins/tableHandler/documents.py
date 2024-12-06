@@ -366,7 +366,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 
 class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTableHandler):
 	"""Integrate Table UX into a `BrowseModeDocumentTreeInterceptor`.
-	""" 
+	"""
 	
 	def __init__(self, rootNVDAObject):
 		super().__init__(rootNVDAObject)
@@ -859,8 +859,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextColumn)
 	def script_nextColumn(self, gesture):
 		if self.passThrough == TABLE_MODE:
-# 			# Translators: A tutor message
-# 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToNextColumn(gesture)
 			return
 		super().script_nextColumn(gesture)
@@ -870,13 +868,47 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	@overrides(BrowseModeDocumentTreeInterceptor.script_previousColumn)
 	def script_previousColumn(self, gesture):
 		if self.passThrough == TABLE_MODE:
-# 			# Translators: A tutor message
-# 			ui.message(_("In table mode, use arrows to navigate table cells."))
 			self._currentTable.script_moveToPreviousColumn(gesture)
 			return
 		super().script_previousColumn(gesture)
 	
 	script_previousColumn.disableTableModeBefore = False
+	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_firstRow)
+	def script_firstRow(self, gesture):
+		if self.passThrough == TABLE_MODE:
+			self._currentTable.script_moveToFirstRow(gesture)
+			return
+		super().script_firstRow(gesture)
+	
+	script_firstRow.disableTableModeBefore = False
+	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_lastRow)
+	def script_lastRow(self, gesture):
+		if self.passThrough == TABLE_MODE:
+			self._currentTable.script_moveToLastRow(gesture)
+			return
+		super().script_LastRow(gesture)
+	
+	script_lastRow.disableTableModeBefore = False
+	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_firstColumn)
+	def script_firstColumn(self, gesture):
+		if self.passThrough == TABLE_MODE:
+			self._currentTable.script_moveToFirstColumn(gesture)
+			return
+		super().script_firstColumn(gesture)
+	
+	script_firstColumn.disableTableModeBefore = False
+	
+	@overrides(BrowseModeDocumentTreeInterceptor.script_lastColumn)
+	def script_lastColumn(self, gesture):
+		if self.passThrough == TABLE_MODE:
+			self._currentTable.script_moveToLastColumn(gesture)
+			return
+		super().script_lastColumn(gesture)
+	
+	script_lastColumn.disableTableModeBefore = False
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_disablePassThrough)
 	def script_disablePassThrough(self, gesture):
@@ -1294,6 +1326,10 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		"kb:control+alt+upArrow": "moveToPreviousRow",
 		"kb:control+alt+downArrow": "moveToNextRow",
 		"kb:control+alt+leftArrow": "moveToPreviousColumn",
-		"kb:control+alt+rightArrow": "moveToNextColumn"
+		"kb:control+alt+rightArrow": "moveToNextColumn",
+		"kb:control+alt+pageUp": "moveToFirstRow",
+		"kb:control+alt+pageDown": "moveToLastRow",
+		"kb:control+alt+home": "moveToFirstColumn",
+		"kb:control+alt+end": "moveToLastColumn",
 #		"kb:tab": "tab"
 	}
