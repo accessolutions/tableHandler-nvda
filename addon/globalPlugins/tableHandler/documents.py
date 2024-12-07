@@ -26,6 +26,7 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
+from abc import abstractmethod
 from collections import namedtuple
 from itertools import chain
 import os.path
@@ -247,13 +248,16 @@ class TableHandlerDocument(AutoPropertyObject):
 	def _get_treeInterceptorClass(self):
 		# Might raise NotImplementedError on purpose.
 		superCls = super().treeInterceptorClass
-		# See DocumentTableManager._iterCellsTextInfos
-		if not issubclass(superCls, VirtualBuffer):
-			return superCls
-		return getDynamicClass((TableHandlerTreeInterceptor, superCls))
+		if issubclass(superCls, VirtualBuffer):
+			return getDynamicClass((TableHandlerVirtualBuffer, superCls))
+		elif issubclass(superCls, BrowseModeDocumentTreeInterceptor):
+			# See DocumentTableManager._iterCellsTextInfos
+			#return getDynamicClass((TableHandlerBmdti, superCls))
+			pass
+		return superCls
 
 
-class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
+class TableHandlerBmdtiScriptWrapper(ScriptWrapper):
 	
 	def __init__(self, ti, script, **defaults):
 		defaults.setdefault("disableTableModeBefore", True)
@@ -363,7 +367,7 @@ class TableHandlerTreeInterceptorScriptWrapper(ScriptWrapper):
 		queueCall(thtiswo_trailer)
 
 
-class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTableHandler):
+class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler):
 	"""Integrate Table UX into a `BrowseModeDocumentTreeInterceptor`.
 	"""
 	
@@ -376,9 +380,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def __getattribute__(self, name):
 		value = super().__getattribute__(name)
 		if name.startswith("script_") and not isinstance(
-			value, TableHandlerTreeInterceptorScriptWrapper
+			value, TableHandlerBmdtiScriptWrapper
 		):
-			return TableHandlerTreeInterceptorScriptWrapper(self, value)
+			return TableHandlerBmdtiScriptWrapper(self, value)
 		return value
 	
 	def _set_passThrough(self, state):
@@ -511,8 +515,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	@catchAll(log)
 	def getAlternativeScript(self, gesture, script):
 		script = super().getAlternativeScript(gesture, script)
-		if script is not None and not isinstance(script, TableHandlerTreeInterceptorScriptWrapper):
-			script = TableHandlerTreeInterceptorScriptWrapper(self, script)
+		if script is not None and not isinstance(script, TableHandlerBmdtiScriptWrapper):
+			script = TableHandlerBmdtiScriptWrapper(self, script)
 		return script
 	
 	@catchAll(log)
@@ -534,8 +538,8 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 				if func is not None:
 					return func
 		func = super().getScript(gesture)
-		if func is not None and not isinstance(func, TableHandlerTreeInterceptorScriptWrapper):
-			func = TableHandlerTreeInterceptorScriptWrapper(self, func)
+		if func is not None and not isinstance(func, TableHandlerBmdtiScriptWrapper):
+			func = TableHandlerBmdtiScriptWrapper(self, func)
 		return func
 	
 	def getTableConfigKey(self, nextHandler, **kwargs):
@@ -688,76 +692,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			attrs.get("table-rowsspanned", 1),
 			attrs.get("table-columnsspanned", 1)
 		)
-	
-	def _handleUpdate(self):
-		super()._handleUpdate()
-		if self.passThrough != TABLE_MODE:
-			return
-		table = self._currentTable
-		rowNum = table._currentRowNumber
-		colNum = table._currentColumnNumber
-		#log.info(f"updating from {rowNum, colNum}")
-		try:
-			table = getTableManager(ti=self, info=self.selection, setPosition=True)
-		except Exception:
-			if not self.isAlive:
-				return
-			log.exception(stack_info=True)
-			return
-		if table:
-			#log.info(f"updated at {rowNum, colNum}")
-			table._currentRowNumber = rowNum
-			table._currentColumnNumber = colNum
-			cell = table._currentCell
-			if not cell:
-				log.warning(f"Could not retrieve current cell {table._currentRowNumber, table._currentColumnNumber}")
-				table = getTableManager(ti=self, info=self.selection, setPosition=True)
-				if not table:
-					log.warning(f"Second table fetch failed")
-					return
-				cell = table._currentCell
-				if not cell:
-					log.warning(f"Second current cell fetch failed {table._currentRowNumber, table._currentColumnNumber}")
-					return
-			cell.__dict__.setdefault("_trackingInfo", []).append("TI._handleUpdate")
-			cache = self._speakObjectTableCellChildrenPropertiesCache
-			
-			def getObjId(obj):
-				if isinstance(obj, FakeObject):
-					return id(obj)
-				return (obj.event_windowHandle, obj.event_objectID, obj.event_childID)
-			
-			def speakChildrenPropertiesChange(obj):
-				for obj in obj.children:
-					objId = getObjId(obj)
-					obj._speakObjectPropertiesCache = cache.get(objId, {})
-					speech.speakObjectProperties(obj, states=True, reason=controlTypes.OutputReason.CHANGE)
-					cache[objId] = obj._speakObjectPropertiesCache
-					speakChildrenPropertiesChange(obj)
-			
-			if cache:
-				speakChildrenPropertiesChange(cell)
-
-			focus = api.getFocusObject()
-			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
-				#log.info(f"_handleUpdate() focusing {cell!r}")
-				try:
-					api.setFocusObject(cell)
-				except Exception:
-					if self.isAlive:
-						log.exception()
-					return
-				braille.handler.handleGainFocus(cell)
-				brailleInput.handler.handleGainFocus(cell)
-				vision.handler.handleGainFocus(cell)
-				#cell.setFocus()
-				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
-				#table._shouldReportNextFocusEntered = False
-				#table.setFocus()
-	
-	def _loadBufferDone(self, success=True):
-		#log.warning(f"_loadBufferDone({success})")
-		super()._loadBufferDone(success=success)
 	
 	def event_gainFocus(self, obj, nextHandler):
 		#log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r} focus={api.getFocusObject()!r}")
@@ -961,6 +895,83 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	script_previousTable.disableTableModeBefore = False
 
 
+class TableHandlerVirtualBuffer(TableHandlerBmdti):
+	
+	def getTableManager(self, nextHandler, **kwargs):
+		kwargs.setdefault("tableManagerClass", VirtualBufferTableManager)
+		return super().getTableManager(nextHandler, **kwargs)
+	
+	def _handleUpdate(self):
+		super()._handleUpdate()
+		if self.passThrough != TABLE_MODE:
+			return
+		table = self._currentTable
+		rowNum = table._currentRowNumber
+		colNum = table._currentColumnNumber
+		#log.info(f"updating from {rowNum, colNum}")
+		try:
+			table = getTableManager(ti=self, info=self.selection, setPosition=True)
+		except Exception:
+			if not self.isAlive:
+				return
+			log.exception(stack_info=True)
+			return
+		if table:
+			#log.info(f"updated at {rowNum, colNum}")
+			table._currentRowNumber = rowNum
+			table._currentColumnNumber = colNum
+			cell = table._currentCell
+			if not cell:
+				log.warning(f"Could not retrieve current cell {table._currentRowNumber, table._currentColumnNumber}")
+				table = getTableManager(ti=self, info=self.selection, setPosition=True)
+				if not table:
+					log.warning(f"Second table fetch failed")
+					return
+				cell = table._currentCell
+				if not cell:
+					log.warning(f"Second current cell fetch failed {table._currentRowNumber, table._currentColumnNumber}")
+					return
+			cell.__dict__.setdefault("_trackingInfo", []).append("TI._handleUpdate")
+			cache = self._speakObjectTableCellChildrenPropertiesCache
+			
+			def getObjId(obj):
+				if isinstance(obj, FakeObject):
+					return id(obj)
+				return (obj.event_windowHandle, obj.event_objectID, obj.event_childID)
+			
+			def speakChildrenPropertiesChange(obj):
+				for obj in obj.children:
+					objId = getObjId(obj)
+					obj._speakObjectPropertiesCache = cache.get(objId, {})
+					speech.speakObjectProperties(obj, states=True, reason=controlTypes.OutputReason.CHANGE)
+					cache[objId] = obj._speakObjectPropertiesCache
+					speakChildrenPropertiesChange(obj)
+			
+			if cache:
+				speakChildrenPropertiesChange(cell)
+
+			focus = api.getFocusObject()
+			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
+				#log.info(f"_handleUpdate() focusing {cell!r}")
+				try:
+					api.setFocusObject(cell)
+				except Exception:
+					if self.isAlive:
+						log.exception()
+					return
+				braille.handler.handleGainFocus(cell)
+				brailleInput.handler.handleGainFocus(cell)
+				vision.handler.handleGainFocus(cell)
+				#cell.setFocus()
+				#log.info("setting _shouldReportNextFocusEntered False from _handleUpdate from thtiswo_trailer")
+				#table._shouldReportNextFocusEntered = False
+				#table.setFocus()
+	
+	def _loadBufferDone(self, success=True):
+		#log.warning(f"_loadBufferDone({success})")
+		super()._loadBufferDone(success=success)
+		
+
 class DocumentFakeObject(FakeObject):
 	
 	def _get_treeInterceptor(self):
@@ -1150,11 +1161,11 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 			and self.tableID == obj.tableID
 		))
 	
+	@abstractmethod
 	def _iterCellsTextInfos(self, rowNumber):
 		# TODO: Provide a generic BrowseModeDocumentTreeInterceptor implementation
 		# to add support of eg. MS Word.
-		# tableUtils.iterVirtualBufferTableCellsSafe uses VirtualBuffer._iterTableCells
-		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)
+		raise NotImplementedError
 	
 	@catchAll(log)
 	def _onTableFilterChange(self, text=None, caseSensitive=None):
@@ -1292,3 +1303,9 @@ class DocumentTableManager(FakeTableManager, DocumentFakeObject):
 		"kb:control+alt+end": "moveToLastColumn",
 #		"kb:tab": "tab"
 	}
+
+
+class VirtualBufferTableManager(DocumentTableManager):
+	
+	def _iterCellsTextInfos(self, rowNumber):
+		return iterVirtualBufferTableCellsSafe(self.ti, self.tableID, row=rowNumber)

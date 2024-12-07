@@ -198,14 +198,14 @@ def setDefaultTableKwargs(kwargs):
 				obj = kwargs["obj"] = api.getFocusObject()
 		ti = kwargs.get("ti")
 		if ti is None:
-			from .documents import DocumentFakeObject, TableHandlerTreeInterceptor
+			from .documents import DocumentFakeObject, TableHandlerBmdti
 			if isinstance(obj, DocumentFakeObject):
 				ti = kwargs["ti"] = obj.ti
-			elif isinstance(info.obj, TableHandlerTreeInterceptor):
+			elif isinstance(info.obj, TableHandlerBmdti):
 				ti = kwargs["ti"] = info.obj
 			else:
 				candidate = obj.treeInterceptor
-				if isinstance(candidate, TableHandlerTreeInterceptor):
+				if isinstance(candidate, TableHandlerBmdti):
 					ti = kwargs["ti"] = candidate
 		
 

@@ -45,8 +45,8 @@ from .documents import (
 	DocumentFakeCell,
 	DocumentFakeRow,
 	DocumentTableHandler,
-	DocumentTableManager,
-	TableHandlerTreeInterceptorScriptWrapper
+	TableHandlerBmdtiScriptWrapper,
+	VirtualBufferTableManager,
 )
 from .scriptUtils import overrides
 
@@ -54,7 +54,7 @@ from .scriptUtils import overrides
 addonHandler.initTranslation()
 
 
-class TableHandlerWebModuleScriptWrapper(TableHandlerTreeInterceptorScriptWrapper):
+class TableHandlerWebModuleScriptWrapper(TableHandlerBmdtiScriptWrapper):
 	
 	def __init__(self, ti, script, **defaults):
 		# The base class uses the default "script" arg, but it conflicts with WebAccess' actions which also
@@ -74,7 +74,7 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 	def __getattribute__(self, name):
 		value = super().__getattribute__(name)
 		if (name.startswith("script_") or name.startswith("action_")) and not isinstance(
-			value, TableHandlerTreeInterceptorScriptWrapper
+			value, TableHandlerBmdtiScriptWrapper
 		):
 			ti = self.ruleManager.nodeManager.treeInterceptor
 			return TableHandlerWebModuleScriptWrapper(ti, value)
@@ -231,7 +231,7 @@ class TableHandlerResult(SingleNodeResult):
 	def __getattribute__(self, name):
 		value = super().__getattribute__(name)
 		if name.startswith("script_") and not isinstance(
-			value, TableHandlerTreeInterceptorScriptWrapper
+			value, TableHandlerBmdtiScriptWrapper
 		):
 			ti = self.rule.ruleManager.nodeManager.treeInterceptor
 			return TableHandlerWebModuleScriptWrapper(ti, value)
@@ -250,7 +250,7 @@ class TableHandlerResult(SingleNodeResult):
 
 
 
-class WebModuleTableManager(DocumentTableManager):
+class WebModuleTableManager(VirtualBufferTableManager):
 	
 	def __init__(self, webModule, result, *args, **kwargs):
 		self.webModule = webModule
