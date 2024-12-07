@@ -359,8 +359,9 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 					level += 1
 				elif found and field.command == "controlEnd":
 					level -= 1
-					if level < 0:
-						continue
+					if level == 0:
+						yield field
+						return
 			if not found:
 				continue
 			yield textOrField
