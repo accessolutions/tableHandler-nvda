@@ -95,7 +95,6 @@ class DocumentTableHandler(TableHandler):
 		if kwargs.get("debug"):
 			log.info(f">>> DTH.getTableConfigKey({kwargs})")
 		try:
-			kwargs["cache"] = False
 			kwargs["key"] = ""
 			if kwargs.get("debug"):
 				log.info(f"DTH.getTableConfigKey - Retrieve default TM")
@@ -370,9 +369,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	def __init__(self, rootNVDAObject):
 		super().__init__(rootNVDAObject)
-		
 		self.autoTableMode = False
-		self._tableManagers = {}
 		self._currentTable = None
 		self._speakObjectTableCellChildrenPropertiesCache = {}
 	
@@ -550,51 +547,9 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		if kwargs.get("debug"):
 			log.info(f">>> THTI.getTableManager({kwargs})")
 		self.setDefaultTableKwargs(kwargs)
-		tableID = kwargs.get("tableID")
-		if tableID is not None:
-			if not kwargs.get("refresh"):
-				table = self._tableManagers.get(tableID)
-				if table:
-					key = kwargs.get("key")
-					if key in (None, table._tableConfig.key):
-						if kwargs.get("setPosition"):
-							rowNum = kwargs.get("rowNum")
-							colNum = kwargs.get("colNum")
-							if kwargs.get("debug"):
-								log.info(
-									f"THTI.getTableManager - Retrieved from cache: "
-									f" {table._currentRowNumber, table._currentColumnNumber}"
-									f" -> {rowNum, colNum}"
-								)
-							if rowNum is not None:
-								table._currentRowNumber = rowNum
-							else:
-								log.error("setPosition: Unspecified row number")
-							if colNum is not None:
-								table._currentColumnNumber = colNum
-							else:
-								log.error("setPosition: Unspecified column number")
-						if kwargs.get("debug"):
-							log.info(f"<<< THTI.getTableManager: {table} (from cache)")
-						return table
-					else:
-						if kwargs.get("debug"):
-							log.info(f"THTI.getTableManager: {table._tableConfig.key} != {kwargs.get('key')}")
-						table.__dict__.setdefault("_trackingInfo", []).append("dropped from cache")
-						if not self._tableManagers.pop(tableID, None):
-							log.error("Table has been asynchronously dropped from cache!")
-						if self._currentTable is table:
-							table._trackingInfo.append("was current")
-						del table
-				elif kwargs.get("debug"):
-					log.info(f"THTI.getTableManager - Not in cache: {tableID}")
-		elif kwargs.get("debug"):
-			log.info(f"THTI.getTableManager - No tableCellCoords (yet)")
 		kwargs["ti"] = self
 		table = super().getTableManager(nextHandler=nextHandler, **kwargs)
 		if table:
-			if kwargs.get("cache", True):
-				self._tableManagers[table.tableID] = table
 			if kwargs.get("setPosition"):
 				rowNum = kwargs.get("rowNum")
 				colNum = kwargs.get("colNum")
@@ -747,7 +702,7 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			cell = table._currentCell
 			if not cell:
 				log.warning(f"Could not retrieve current cell {table._currentRowNumber, table._currentColumnNumber}")
-				table = getTableManager(ti=self, info=self.selection, setPosition=True, refresh=True)
+				table = getTableManager(ti=self, info=self.selection, setPosition=True)
 				if not table:
 					log.warning(f"Second table fetch failed")
 					return
@@ -789,16 +744,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	def _loadBufferDone(self, success=True):
 		#log.warning(f"_loadBufferDone({success})")
 		super()._loadBufferDone(success=success)
-		self._tableManagers.clear()
-	
-	def event_documentLoadComplete(self, *args, **kwargs):
-		#log.warning(f"event_documentLoadComplete({args}, {kwargs})")
-		getattr(
-			super(),
-			"event_documentLoadComplete",
-			lambda *args, **kwargs: None
-		)(*args, **kwargs)
-		self._tableManagers.clear()
 	
 	def event_gainFocus(self, obj, nextHandler):
 		#log.info(f"event_gainFocus({obj!r}): passThrough={self.passThrough!r} focus={api.getFocusObject()!r}")
