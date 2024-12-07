@@ -453,6 +453,10 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 	
 	def _set_selection(self, info, reason=controlTypes.OutputReason.CARET):
 		#log.info(f"_set_selection({info}, {reason})")
+		if not self._hadFirstGainFocus:
+			# Still initializing, most likely restoring caret position
+			super()._set_selection(info, reason=reason)
+			return
 		if reason == REASON_TABLE_MODE:
 			with speechMuted():
 				super()._set_selection(info, reason=controlTypes.OutputReason.CARET)
@@ -686,7 +690,6 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		)
 	
 	def _handleUpdate(self):
-		#log.info("_handleUpdate")
 		super()._handleUpdate()
 		if self.passThrough != TABLE_MODE:
 			return
@@ -694,7 +697,13 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 		rowNum = table._currentRowNumber
 		colNum = table._currentColumnNumber
 		#log.info(f"updating from {rowNum, colNum}")
-		table = getTableManager(ti=self, info=self.selection, setPosition=True, refresh=True)
+		try:
+			table = getTableManager(ti=self, info=self.selection, setPosition=True)
+		except Exception:
+			if not self.isAlive:
+				return
+			log.exception(stack_info=True)
+			return
 		if table:
 			#log.info(f"updated at {rowNum, colNum}")
 			table._currentRowNumber = rowNum
@@ -732,7 +741,12 @@ class TableHandlerTreeInterceptor(BrowseModeDocumentTreeInterceptor, DocumentTab
 			focus = api.getFocusObject()
 			if isinstance(focus, DocumentFakeCell) or focus.treeInterceptor is self:
 				#log.info(f"_handleUpdate() focusing {cell!r}")
-				api.setFocusObject(cell)
+				try:
+					api.setFocusObject(cell)
+				except Exception:
+					if self.isAlive:
+						log.exception()
+					return
 				braille.handler.handleGainFocus(cell)
 				brailleInput.handler.handleGainFocus(cell)
 				vision.handler.handleGainFocus(cell)
