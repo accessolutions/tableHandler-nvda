@@ -31,7 +31,9 @@ from functools import partial
 from typing import Any
 import weakref
 
+from NVDAObjects import NVDAObject
 import addonHandler
+import api
 from logHandler import log
 
 from globalPlugins.webAccess.ruleHandler import Rule, SingleNodeResult
@@ -251,31 +253,47 @@ class TableHandlerResult(SingleNodeResult):
 class WebModuleTableManager(DocumentTableManager):
 	
 	def __init__(self, webModule, result, *args, **kwargs):
+		self.webModule = webModule
 		self.result = result
-		self.webModule = weakref.proxy(webModule)
 		super().__init__(*args, **kwargs)
 	
 	def _get_RowClass(self):
 		return self.webModule.getRowClass(self.result)
+	
+	def _get_webModule(self):
+		webModule = self._webModule()
+		if webModule is None:
+			if self in api.getFocusAncestors():
+				obj = NVDAObject.objectWithFocus()
+				if obj is not None:
+					api.setFocusObject(obj)
+			raise Exception("This table's webModule instance no longer exists")
+		return webModule
+	
+	def _set_webModule(self, webModule):
+		self._webModule = weakref.ref(webModule)
 	
 	def _get_result(self):
 		result = self._result()
 		if result is None:
 			try:
 				result = self.webModule.ruleManager.getRule(
-					self.ruleName, layer=self.ruleLayer
-				).getResults()[self.index - 1]  # Result index is 1-based
+					self._ruleName, layer=self._ruleLayer
+				).getResults()[self._resultIndex - 1]  # Result index is 1-based
 			except Exception as e:
-				# TODO: Proper Table Mode deactivation
+				if self in api.getFocusAncestors():
+					obj = NVDAObject.objectWithFocus()
+					if obj is not None:
+						api.setFocusObject(obj)
 				raise Exception("This table's result no longer exists") from e
 			self._result = weakref.ref(result)
 		return result
 	
 	def _set_result(self, result):
 		rule = result.rule
-		self.ruleName = rule.name
-		self.ruleLayer = rule.layer
-		self.resultIndex = result.index
+		self._ruleName = rule.name
+		self._ruleLayer = rule.layer
+		self._resultIndex = result.index
 		self._result = weakref.ref(result)
 	
 	def _get_rowCount(self):
