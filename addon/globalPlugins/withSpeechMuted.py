@@ -22,7 +22,7 @@
 """Context managers and function decorators to control spoken announcements. 
 """
 
-__version__ = "2024.09.16"
+__version__ = "2024.12.08"
 __author__ = u"Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
@@ -74,7 +74,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			setter(obj.super)
 			break
 		setter = lambda value: setattr(speech.speech, "speak", value)
-		obj = speech.speak
+		obj = speech.speech.speak
 		while True:
 			if obj is not _speak:
 				if not hasattr(obj, "super"):
