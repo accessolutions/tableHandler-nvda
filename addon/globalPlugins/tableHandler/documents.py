@@ -284,6 +284,7 @@ class TableHandlerBmdtiScriptWrapper(ScriptWrapper):
 		focus = api.getFocusObject()
 		if isinstance(focus, DocumentFakeCell):
 			cell = focus
+			table = cell.table
 			cache = ti._speakObjectTableCellChildrenPropertiesCache
 			cache.clear()
 			
@@ -303,6 +304,8 @@ class TableHandlerBmdtiScriptWrapper(ScriptWrapper):
 			
 			cacheChildrenProperties(cell)
 			#log.info(f"cached as {ti.selection._startOffset} by {self.__name__}: {cell.rowNumber, cell.columnNumber} {cache!r}", stack_info=True)
+		else:
+			table = None
 		
 		if not any((
 			disableTableModeBefore,
@@ -357,8 +360,7 @@ class TableHandlerBmdtiScriptWrapper(ScriptWrapper):
 					and before.compareEndPoints(after, "endToEnd") == 0
 					and not ti.passThrough
 				):
-					table = ti._currentTable
-					if table:
+					if table is not None:
 						table._shouldReportNextFocusEntered = False
 					queueCall(setattr, ti, "passThrough", TABLE_MODE)
 					queueCall(reportPassThrough, ti)
@@ -443,7 +445,7 @@ class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler)
 			obj = self._lastFocusObj
 			if not obj:
 				obj = NVDAObjects.NVDAObject.objectWithFocus()
-				if not obj in self:
+				if obj not in self:
 					obj = self._currentTable.parent
 				self._lastFocusObj = obj
 				#log.info(f"TI.passThrough={state}, Back to real focus {obj!r}({obj.role!r})")
@@ -521,22 +523,6 @@ class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler)
 	
 	@catchAll(log)
 	def getScript(self, gesture):
-		if self.passThrough == TABLE_MODE:
-			table = self._currentTable
-			if table is not None:
-				cell = table._currentCell
-				if cell is not None:
-					func = cell.getScript(gesture)
-					if func is not None:
-						return func
-				row = table._currentRow
-				if row is not None:
-					func = row.getScript(gesture)
-					if func is not None:
-						return func
-				func = table.getScript(gesture)
-				if func is not None:
-					return func
 		func = super().getScript(gesture)
 		if func is not None and not isinstance(func, TableHandlerBmdtiScriptWrapper):
 			func = TableHandlerBmdtiScriptWrapper(self, func)
@@ -702,6 +688,7 @@ class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler)
 			except Exception:
 				log.exception("obj={!r}".format(obj))
 				raise
+			api.setFocusObject(self._currentTable)
 			return
 		#log.info(f"TI.event_gainFocus({obj!r}({obj.role!r}), isLast={obj is self._lastFocusObj}, eqLast={obj == self._lastFocusObj}, isPending={obj is self._objPendingFocusBeforeActivate}, eqPending={obj == self._objPendingFocusBeforeActivate}")
 		# After leaving table mode, the newly focused object might, if activated,
@@ -748,6 +735,15 @@ class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler)
 			func(obj, nextHandler)
 		else:
 			nextHandler()
+	
+	def event_treeInterceptor_gainFocus(self):
+		if self.passThrough == TABLE_MODE:
+			# Avoid stock announce of the cell content in the event it contains
+			# a focusable object and NVDA config has autoFocusFocusableElements=True
+			with speechMuted():
+				super().event_treeInterceptor_gainFocus()
+				return
+		super().event_treeInterceptor_gainFocus()
 	
 	@overrides(BrowseModeDocumentTreeInterceptor.script_nextColumn)
 	def script_nextColumn(self, gesture):

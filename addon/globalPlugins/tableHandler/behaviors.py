@@ -493,7 +493,7 @@ class Cell(ScriptableObject):
 			
 			def loseFocus_trailer():
 				focus = api.getFocusObject()
-				if getattr(focus, "table", None) is not table:
+				if not isinstance(focus, Cell) or focus.table is not table:
 					table._hasFocusEntered = False
 			
 			queueCall(loseFocus_trailer)
