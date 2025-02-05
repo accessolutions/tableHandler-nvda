@@ -417,6 +417,7 @@ class TableConfig:
 		size = braille.handler.displaySize
 		width = min(width, size)
 		sizes = self["columnWidthsByDisplaySize"].setdefault(size, {})[columnNumber] = width
+		self.save()
 		return width
 	
 	@synchronized.function(lockHolderGetter=lambda func, *args, **kwargs: TableConfig)
