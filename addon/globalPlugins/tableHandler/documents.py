@@ -72,6 +72,7 @@ from .textInfoUtils import getField
 addonHandler.initTranslation()
 
 
+DEBUG_MODE = False
 SCRIPT_CATEGORY = "TableHandler"
 
 
@@ -167,11 +168,11 @@ class DocumentTableHandler(TableHandler):
 			colNum = kwargs.get("colNum")
 			if rowNum is not None:
 				table._currentRowNumber = rowNum
-			else:
+			elif DEBUG_MODE:
 				log.error("setPosition: Unspecified row number")
 			if colNum is not None:
 				table._currentColumnNumber = colNum
-			else:
+			elif DEBUG_MODE:
 				log.error("setPosition: Unspecified column number")
 			table._currentRowNumber = rowNum
 			table._currentColumnNumber = colNum
@@ -549,11 +550,11 @@ class TableHandlerBmdti(BrowseModeDocumentTreeInterceptor, DocumentTableHandler)
 				colNum = kwargs.get("colNum")
 				if rowNum is not None:
 					table._currentRowNumber = rowNum
-				else:
+				elif DEBUG_MODE:
 					log.error("setPosition: Unspecified row number")
 				if colNum is not None:
 					table._currentColumnNumber = colNum
-				else:
+				elif DEBUG_MODE:
 					log.error("setPosition: Unspecified column number")
 			if kwargs.get("debug"):
 				log.info(f"<<< THTI.getTableManager: {table} (from super)")
