@@ -275,6 +275,7 @@ class TableConfig:
 	# JSON only supports strings for mappings keys.
 	# Int keys are automatically changed to strings upon saving.
 	INT_KEY_MAPPINGS = (
+		"columnWidthsByDisplaySize",
 		"customColumnHeaders",
 		"customRowHeaders",
 		"defaultColumnWidthByDisplaySize",
@@ -367,9 +368,14 @@ class TableConfig:
 	def restoreIntKeys(cls, data: Mapping[str, Any]) -> Mapping[str, Any]:
 		"""Restore integer keys changed to strings when marshaled to JSON
 		"""
+		def restored(obj):
+			if not isinstance(obj, Mapping):
+				return obj
+			return {int(k): restored(v) for k, v in obj.items()}
+		
 		for key in cls.INT_KEY_MAPPINGS:
 			if key in data:
-				data[key] = {int(k): v for k, v in data[key].items()}
+				data[key] = restored(data[key])
 		return data
 	
 	def __init__(self, key, data=None):
@@ -390,10 +396,8 @@ class TableConfig:
 		self.save()
 	
 	def getColumnWidth(self, columnNumber):
-		log.info(f">>> getColumnWidth: {columnNumber}")
 		size = braille.handler.displaySize
 		columnWidth = self["columnWidthsByDisplaySize"].get(size, {}).get(columnNumber)
-		log.info(f"getColumnWidth: columnWidth={columnWidth}")
 		if columnWidth is not None:
 			return columnWidth
 		defaultWidth = self["defaultColumnWidthByDisplaySize"].get(size)
