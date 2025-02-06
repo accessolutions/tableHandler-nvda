@@ -32,6 +32,7 @@ from NVDAObjects import NVDAObject
 import addonHandler
 import api
 import braille
+from buildVersion import version_detailed as NVDA_VERSION
 import config
 import controlTypes
 from logHandler import log
@@ -182,21 +183,35 @@ class ResizingCell(FakeObject):
 		braille.handler.handleUpdate(self)
 		# Translators: Announced when adjusting the width in braille of a table column
 		speech.speakMessage(_("Column width set to {count} braille cells").format(count=width))
-		if getattr(cell, "effectiveColumnWidthBraille", 0) > width:
-			speech.speakMessage(_("extended to {count}").format(count=cell.effectiveColumnWidthBraille))
-		newColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
-		if oldColsAfter != newColsAfter:
-			if newColsAfter:
-				if newColsAfter == 1:
-					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("1 next column on the right")
+		
+		def setColumnWidthBraille_trailer(token=None):
+			if NVDA_VERSION >= "2023.3":
+				# Braille update is asynchronous as of NVDA PR ##15163
+				if braille.handler._regionsPendingUpdate:
+					# Avoid emitting unrelevant trailer announces on fast key repeat
+					token = self.setColumnWidthBraille.__func__.trailerToken = object()
+					from ..coreUtils import queueCall
+					queueCall(setColumnWidthBraille_trailer, token)
+					return
+			if token is not None and token is not self.setColumnWidthBraille.trailerToken:
+				return
+			if getattr(cell, "effectiveColumnWidthBraille", 0) > width:
+				speech.speakMessage(_("extended to {count}").format(count=cell.effectiveColumnWidthBraille))
+			newColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
+			if oldColsAfter != newColsAfter:
+				if newColsAfter:
+					if newColsAfter == 1:
+						# Translators: Announced when adjusting the width in braille of a table column
+						msg = _("1 next column on the right")
+					else:
+						# Translators: Announced when adjusting the width in braille of a table column
+						msg = _("{count} next columns on the right")
+					speech.speakMessage(msg.format(count=newColsAfter))
 				else:
 					# Translators: Announced when adjusting the width in braille of a table column
-					msg = _("{count} next columns on the right")
-				speech.speakMessage(msg.format(count=newColsAfter))
-			else:
-				# Translators: Announced when adjusting the width in braille of a table column
-				speech.speakMessage(_("The next column does not fit in this braille window"))
+					speech.speakMessage(_("The next column does not fit in this braille window"))
+		
+		setColumnWidthBraille_trailer()
 	
 	def reportFocus(self):
 		# Translators: Announced when initiating table column resizing in braille
@@ -211,7 +226,10 @@ class ResizingCell(FakeObject):
 		cell = self.cell
 		oldColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
 		width = cell.table._tableConfig.getColumnWidth(cell.columnNumber)
-		self.setColumnWidthBraille(width + 1)
+		width += 1
+		if width > braille.handler.displaySize:
+			width = braille.handler.displaySize
+		self.setColumnWidthBraille(width)
 	
 	# Translators: The description of a command.
 	script_expand.__doc__ = _("Increase the width of the current column in braille")
@@ -220,7 +238,10 @@ class ResizingCell(FakeObject):
 		cell = self.cell
 		oldColsAfter = getattr(cell, "columnsAfterInBrailleWindow", None)
 		width = cell.table._tableConfig.getColumnWidth(cell.columnNumber)
-		self.setColumnWidthBraille(width - 1)
+		width -= 1
+		if width < 1:
+			width = 1
+		self.setColumnWidthBraille(width)
 	
 	# Translators: The description of a command.
 	script_shrink.__doc__ = _("Decrease the width of the current column in braille")
