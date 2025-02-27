@@ -121,6 +121,11 @@ class TableHandlerSettingsPanel(SettingsPanel):
 			))
 		)
 		item.Value = config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
+		item = self.brlShowSel = sHelper.addItem(
+			# Translators: The label for a settings in the Table Mode settings panel
+			wx.CheckBox(self, label=_("&Underline in braille the selected column"))
+		)
+		item.Value = config.conf["tableHandler"]["brailleShowSelection"]
 		item = self.brlColSep = sHelper.addLabeledControl(
 			# Translators: The label for a settings in the Table Mode settings panel
 			_(
@@ -149,6 +154,7 @@ class TableHandlerSettingsPanel(SettingsPanel):
 	def onSave(self):
 		config.conf["tableHandler"]["enableOnQuickNav"] = self.quickNav.GetValue()
 		config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"] = self.brlDblClick.GetValue()
+		config.conf["tableHandler"]["brailleShowSelection"] = self.brlShowSel.GetValue()
 		config.conf["tableHandler"]["brailleColumnSeparator"] = self.brlColSep.Value
 		config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"] = self.brlColSepActivate.Value
 		config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"] = self.brlColWidthRouting.Value

@@ -30,6 +30,7 @@ from logHandler import log
 CONFIG_SPEC = {
 	"enableOnQuickNav": "boolean(default=False)",
 	"brailleRoutingDoubleClickToActivate": "boolean(default=False)",
+	"brailleShowSelection": "boolean(default=False)",
 	"brailleColumnSeparator": "string(default='4568')",
 	"brailleColumnSeparatorActivateToSetWidth": "boolean(default=True)",
 	"brailleSetColumnWidthWithRouting": "boolean(default=True)",

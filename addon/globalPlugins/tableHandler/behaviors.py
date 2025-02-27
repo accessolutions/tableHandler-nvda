@@ -169,10 +169,11 @@ class RowRegionBuffer(TabularBrailleBuffer):
 					for index, brailleCell in reversed(list(enumerate(brailleCells)))
 					if brailleCell
 				), 0)
-			brailleCells[markStart:markEnd] = [
-				brailleCell | braille.SELECTION_SHAPE
-				for brailleCell in brailleCells[markStart:markEnd]
-			]
+			if config.conf["tableHandler"]["brailleShowSelection"]:
+				brailleCells[markStart:markEnd] = [
+					brailleCell | braille.SELECTION_SHAPE
+					for brailleCell in brailleCells[markStart:markEnd]
+				]
 		elif self.resizingCell and isCellRegion:
 			self.resizingCell.columnsAfterInBrailleWindow += 1
 	
