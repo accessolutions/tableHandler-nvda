@@ -138,6 +138,84 @@ class RowRegionBuffer(TabularBrailleBuffer):
 		self.rowRegion = weakref.proxy(rowRegion)
 		self.resizingCell = None
 	
+	def _get_windowEndPos(self):
+		# Changed from stock implementation:
+		#  - Also consider SELECTION_SHAPE as a word break
+		endPos = self.windowStartPos + self.handler.displaySize
+		cellsLen = len(self.brailleCells)
+		if endPos >= cellsLen:
+			return cellsLen
+		if not config.conf["braille"]["wordWrap"]:
+			return endPos
+		# Try not to split words across windows.
+		# To do this, break after the furthest possible space.
+		cells = self.brailleCells
+		for index in range(endPos - 1, self.windowStartPos - 1, -1):
+			if cells[index] in (0, braille.SELECTION_SHAPE):
+				return index
+		return endPos
+	
+	def _set_windowEndPos(self, endPos):
+		# Changed from stock implementation:
+		#  - Also consider SELECTION_SHAPE as a word break
+		"""Sets the end position for the braille window and recalculates the window start position based on several variables.
+		1. Braille display size.
+		2. Whether one of the regions should be shown hard left on the braille display;
+			i.e. because of The configuration setting for focus context representation
+			or whether the braille region that corresponds with the focus represents a multi line edit box.
+		3. Whether word wrap is enabled."""
+		startPos = endPos - self.handler.displaySize
+		# Loop through the currently displayed regions in reverse order
+		# If focusToHardLeft is set for one of the regions, the display shouldn't scroll further back than the start of that region
+		for region, regionStart, regionEnd in reversed(list(self.regionsWithPositions)):
+			if regionStart < endPos:
+				if region.focusToHardLeft:
+					# Only scroll to the start of this region.
+					restrictPos = regionStart
+					break
+				elif config.conf["braille"]["focusContextPresentation"] != braille.CONTEXTPRES_CHANGEDCONTEXT:
+					# We aren't currently dealing with context change presentation
+					# thus, we only need to consider the last region
+					# since it doesn't have focusToHardLeftSet, the window start position isn't restricted
+					restrictPos = 0
+					break
+		else:
+			restrictPos = 0
+		if startPos <= restrictPos:
+			self.windowStartPos = restrictPos
+			return
+		if not config.conf["braille"]["wordWrap"]:
+			self.windowStartPos = startPos
+			return
+		try:
+			# Try not to split words across windows.
+			# To do this, break after the furthest possible block of spaces.
+			# Find the start of the first block of spaces.
+			# Search from 1 cell before in case startPos is just after a space.
+			for index in range(endPos - 1, startPos - 2, -1):
+				if cells[index] in (0, braille.SELECTION_SHAPE):
+					startPos = index
+					break
+			else:
+				raise ValueError()
+			# Skip past spaces.
+			for startPos in range(startPos, endPos):
+				if cells[startPos] not in (0, braille.SELECTION_SHAPE):
+					break
+		except ValueError:
+			pass
+		# When word wrap is enabled, the first block of spaces may be removed from the current window.
+		# This may prevent displaying the start of paragraphs.
+		paragraphStartMarker = getParagraphStartMarker()
+		if paragraphStartMarker and self.regions[-1].rawText.startswith(
+			paragraphStartMarker + TEXT_SEPARATOR,
+		):
+			region, regionStart, regionEnd = list(self.regionsWithPositions)[-1]
+			# Show paragraph start indicator if it is now at the left of the current braille window
+			if startPos <= len(paragraphStartMarker) + 1:
+				startPos = self.regionPosToBufferPos(region, regionStart)
+		self.windowStartPos = startPos
+	
 	def onRegionUpdatedAfterPadding(self, region):
 		if isinstance(region, CellRegion):
 			obj = region.obj
@@ -247,12 +325,11 @@ class RowRegion(braille.TextInfoRegion):
 					break
 		if columns:
 			assert len(columns) >= 2
-			# Remove the last column separator and expand the last column to the display size
+			# Remove the last column separator and allow the last column to overflow
+			# to additional windows.
 			del columns[-1]
 			lastWinNum, lastWidth, lastCell = columns[-1]
-			lastWidth += displaySize - winSize
-			columns[-1] = (lastWinNum, lastWidth, lastCell)
-		#log.info(f"columns: {pformat(columns, indent=4)}")
+			columns[-1] = (lastWinNum, None, lastCell)
 		return columns
 	
 	def getWindowColumns(self):
@@ -320,6 +397,7 @@ class RowRegion(braille.TextInfoRegion):
 			self.rawText = buffer.windowRawText
 			self.brailleCells = buffer.windowBrailleCells
 			self.cursorPos = buffer.cursorWindowPos
+			self.update()
 		elif self.windowNumber:
 			self.windowNumber -= 1
 			self.update()
@@ -335,7 +413,8 @@ class RowRegion(braille.TextInfoRegion):
 			self.rawText = buffer.windowRawText
 			self.brailleCells = buffer.windowBrailleCells
 			self.cursorPos = buffer.cursorWindowPos
-		if self.windowNumber < self.maxWindowNumber:
+			self.update()
+		elif self.windowNumber < self.maxWindowNumber:
 			self.windowNumber += 1
 			self.update()
 		else:
