@@ -31,7 +31,7 @@ CONFIG_SPEC = {
 	"enableOnQuickNav": "boolean(default=False)",
 	"brailleRoutingDoubleClickToActivate": "boolean(default=False)",
 	"brailleShowSelection": "boolean(default=False)",
-	"brailleColumnSeparator": "string(default='4568')",
+	"brailleColumnSeparatorStyle": "integer(default=1)",
 	"brailleColumnSeparatorActivateToSetWidth": "boolean(default=True)",
 	"brailleSetColumnWidthWithRouting": "boolean(default=True)",
 }
@@ -44,7 +44,7 @@ def handleConfigChange():
 	global _cache
 	oldCfg = _cache["tableHandler"] if _cache else None
 	newCfg = config.conf["tableHandler"]
-	if not oldCfg or oldCfg["brailleColumnSeparator"] != newCfg["brailleColumnSeparator"]:
+	if not oldCfg or oldCfg["brailleColumnSeparatorStyle"] != newCfg["brailleColumnSeparatorStyle"]:
 		from .behaviors import ColumnSeparatorRegion
 		ColumnSeparatorRegion.handleConfigChange()
 	_cache = {"tableHandler" : config.conf["tableHandler"].dict()}

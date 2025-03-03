@@ -26,6 +26,7 @@ __author__ = "Julien Cochuyt <j.cochuyt@accessolutions.fr>"
 __license__ = "GPL"
 
 
+import enum
 import weakref
 
 from NVDAObjects import NVDAObject
@@ -34,6 +35,7 @@ import api
 from baseObject import ScriptableObject
 import braille
 import brailleInput
+from buildVersion import version_detailed as NVDA_VERSION
 import config
 import controlTypes
 from logHandler import log
@@ -49,7 +51,7 @@ from globalPlugins.withSpeechMuted import speechUnmutedFunction
 from .brailleUtils import (
 	TabularBrailleBuffer,
 	brailleCellsDecimalStringToIntegers,
-	brailleCellsIntegersToUnicode
+	brailleCellsIntegersToUnicode,
 )
 from .coreUtils import catchAll, queueCall, translate
 from .scriptUtils import getScriptGestureTutorMessage
@@ -86,32 +88,128 @@ class CellRegion(braille.TextInfoRegion):
 			pass
 
 
+class ColumnSeparatorPosition(enum.Enum):
+	DEFAULT = enum.auto()
+	BEFORE_SELECTION = enum.auto()
+	AFTER_SELECTION = enum.auto()
+	END_OF_WINDOW = enum.auto()
+	EOW_AFTER_SEL = enum.auto()
+
+
 class ColumnSeparatorRegion(braille.Region):
 	
-	brailleCells = None
-	brailleToRawPos = None
-	rawText = None
-	rawToBraillePos = None
+	SCHEMES = {
+		"bar": {
+			ColumnSeparatorPosition.DEFAULT: "4568",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "4568",
+			ColumnSeparatorPosition.AFTER_SELECTION: "45678",
+			ColumnSeparatorPosition.END_OF_WINDOW: "4568",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "45678",
+		},
+		"bracket": {
+			ColumnSeparatorPosition.DEFAULT: "4568",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "123478",
+			ColumnSeparatorPosition.AFTER_SELECTION: "145678",
+			ColumnSeparatorPosition.END_OF_WINDOW: "4568",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "145678",
+		},
+		"twoSpaces": {
+			ColumnSeparatorPosition.DEFAULT: "0-0",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "0-78",
+			ColumnSeparatorPosition.AFTER_SELECTION: "78-0",
+			ColumnSeparatorPosition.END_OF_WINDOW: "0",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "78",
+		},
+		"barSpace": {
+			ColumnSeparatorPosition.DEFAULT: "4568-0",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "4568-78",
+			ColumnSeparatorPosition.AFTER_SELECTION: "74568-0",
+			ColumnSeparatorPosition.END_OF_WINDOW: "4568",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "45678",
+		},
+		"bracketSpace": {
+			ColumnSeparatorPosition.DEFAULT: "4568-0",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "123478-0",
+			ColumnSeparatorPosition.AFTER_SELECTION: "174568-0",
+			ColumnSeparatorPosition.END_OF_WINDOW: "4568",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "145678",
+		},
+		"spaceBarSpace": {
+			ColumnSeparatorPosition.DEFAULT: "0-4568-0",
+			ColumnSeparatorPosition.BEFORE_SELECTION: "0-4568-78",
+			ColumnSeparatorPosition.AFTER_SELECTION: "78-74568-0",
+			ColumnSeparatorPosition.END_OF_WINDOW: "0-4568",
+			ColumnSeparatorPosition.EOW_AFTER_SEL: "78-45678",
+		},
+	}
+	
+	scheme = None
+	widthDefault = None
+	widthAtEoW = None
 	
 	@classmethod
 	def handleConfigChange(cls):
-		cells = cls.brailleCells = brailleCellsDecimalStringToIntegers(
-			config.conf["tableHandler"]["brailleColumnSeparator"]
+		style = config.conf["tableHandler"]["brailleColumnSeparatorStyle"]
+		# 0 - bar or bracket if no selected cell underline
+		# 1 - same as 0, but bar then space if display size > 40
+		# 2 - two spaces
+		# 3 - bar then space
+		# 4 - same as 3, but add a leading space if display size > 40
+		if style in (0, 1):
+			if style == 1 and braille.handler.displaySize > 40:
+				cls.scheme = "barSpace"
+			else:
+				if config.conf["tableHandler"]["brailleShowSelection"]:
+					cls.scheme = "bar"
+				else:
+					cls.scheme = "bracket"
+		elif style == 2:
+			cls.scheme = "twoSpaces"
+		elif style in (3, 4):
+			if style == 4 and braille.handler.displaySize >= 40:
+				cls.scheme = "spaceBarSpace"
+			else:
+				if config.conf["tableHandler"]["brailleShowSelection"]:
+					cls.scheme = "barSpace"
+				else:
+					cls.scheme = "bracketSpace"
+		widths = set(
+			len(brailleCellsDecimalStringToIntegers(cls.SCHEMES[cls.scheme][position]))
+			for position in (
+				ColumnSeparatorPosition.DEFAULT,
+				ColumnSeparatorPosition.BEFORE_SELECTION,
+				ColumnSeparatorPosition.AFTER_SELECTION,
+			)
 		)
-		cls.rawText = brailleCellsIntegersToUnicode(cells)
-		cls.brailleToRawPos = list(range(len(cells)))
-		cls.rawToBraillePos = list(range(len(cells)))	
+		widthDefault = cls.widthDefault = widths.pop()
+		assert not widths
+		widths = set(
+			len(brailleCellsDecimalStringToIntegers(cls.SCHEMES[cls.scheme][position]))
+			for position in (
+				ColumnSeparatorPosition.END_OF_WINDOW,
+				ColumnSeparatorPosition.EOW_AFTER_SEL,
+			)
+		)
+		widthAtEoW = cls.widthAtEoW = widths.pop()
+		assert not widths
+		assert widthDefault >= widthAtEoW
 	
 	def __init__(self, obj):
 		super().__init__()
 		self.obj = obj
-		self.brailleCells = type(self).brailleCells
-		self.brailleToRawPos = type(self).brailleToRawPos
-		self.rawText = type(self).rawText
-		self.rawToBraillePos = type(self).rawToBraillePos
 	
 	def routeTo(self, braillePos):
-		cell = self.obj.cell
+		if (
+			braillePos == self.width - 1
+			and self.obj.position not in (
+				ColumnSeparatorPosition.END_OF_WINDOW, ColumnSeparatorPosition.EOW_AFTER_SEL
+			) and self.scheme in (
+				"twoSpaces", "barSpace", "bracketSpace", "spaceBarSpace"
+			)
+		):
+			cell = self.obj.cellAfter
+		else:
+			cell = self.obj.cellBefore
 		table = cell.table
 		colNum = cell.columnNumber
 		if not colNum == table._currentColumnNumber:
@@ -124,11 +222,15 @@ class ColumnSeparatorRegion(braille.Region):
 		if not config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"]:
 			table._reportColumnChange()
 			return
-		self.obj.cell.script_modifyColumnWidthBraille(None)
+		self.obj.cellBefore.script_modifyColumnWidthBraille(None)
 	
 	def update(self):
-		# Handle by `.config.handleConfigChange_brailleColumnSeparator` 
-		pass
+		pattern = self.SCHEMES[self.scheme][self.obj.position]
+		self.brailleCells = cells = brailleCellsDecimalStringToIntegers(pattern)
+		self.rawText = text = brailleCellsIntegersToUnicode(cells)
+		self.width = width = len(cells)
+		assert width == len(text)
+		self.brailleToRawPos = self.rawToBraillePos = tuple(range(width))
 
 
 class RowRegionBuffer(TabularBrailleBuffer):
@@ -136,7 +238,6 @@ class RowRegionBuffer(TabularBrailleBuffer):
 	def __init__(self, rowRegion):
 		super().__init__()
 		self.rowRegion = weakref.proxy(rowRegion)
-		self.resizingCell = None
 	
 	def _get_windowEndPos(self):
 		# Changed from stock implementation:
@@ -217,48 +318,30 @@ class RowRegionBuffer(TabularBrailleBuffer):
 		self.windowStartPos = startPos
 	
 	def onRegionUpdatedAfterPadding(self, region):
-		if isinstance(region, CellRegion):
-			obj = region.obj
-			brailleCells = region.brailleCells
-			isCellRegion = True
-		else:
-			assert isinstance(region, ColumnSeparatorRegion)
-			if not isinstance(region, ColumnSeparatorRegion):
-				raise ValueError(region)
-			obj = region.obj.cell
-			# Preserve the shared class attribute
-			brailleCells = region.brailleCells = region.brailleCells.copy()
-			isCellRegion = False
-		if obj.columnNumber == obj.table._currentColumnNumber:
-			#if obj is not self.rowRegion.obj and not isinstance(obj, weakref.ProxyType):
-			#	log.warning(f"{obj!r} is not {self.rowRegion.obj!r}")
-			markStart = 0
-			if isCellRegion:
-				if self.rowRegion.isResizingColumnWidth:
-					markEnd = obj.table._tableConfig.getColumnWidth(obj.columnNumber)
-					obj.columnsAfterInBrailleWindow = 0
-					obj.effectiveColumnWidthBraille = region.width
-					self.resizingCell = obj
-				else:
-					markEnd = None
-			else:
-				markEnd = next((
-					index + 1
-					for index, brailleCell in reversed(list(enumerate(brailleCells)))
-					if brailleCell
-				), 0)
+		if not isinstance(region, CellRegion):
+			return
+		# - Underline selection
+		# - During resize: Retrieve effective width and count columns after
+		brailleCells = region.brailleCells
+		cell = region.obj
+		colNum = cell.columnNumber
+		if colNum == cell.table._currentColumnNumber:
 			if config.conf["tableHandler"]["brailleShowSelection"]:
-				brailleCells[markStart:markEnd] = [
+				brailleCells[:] = [
 					brailleCell | braille.SELECTION_SHAPE
-					for brailleCell in brailleCells[markStart:markEnd]
+					for brailleCell in brailleCells[:]
 				]
-		elif self.resizingCell and isCellRegion:
-			self.resizingCell.columnsAfterInBrailleWindow += 1
-	
-	def update(self):
-		self.resizingCell = None
-		super().update()
-		self.resizingCell = None
+		from .fakeObjects.table import ResizingCell
+		obj = self.rowRegion.obj
+		if isinstance(obj, ResizingCell):
+			resizingNum = obj.cell.columnNumber
+			if colNum == resizingNum:
+				self.resizingCell = cell
+				obj.cell.brailleWindowNumber = self.rowRegion.windowNumber
+				obj.cell.columnsAfterInBrailleWindow = 0
+				obj.cell.effectiveColumnWidthBraille = region.width
+			elif colNum > resizingNum:
+				obj.cell.columnsAfterInBrailleWindow += 1
 
 
 class RowRegion(braille.TextInfoRegion):
@@ -272,71 +355,97 @@ class RowRegion(braille.TextInfoRegion):
 		self.cell = cell
 		self.row = weakref.proxy(cell.row)
 		self.table = weakref.proxy(self.row.table)
-		self.isResizingColumnWidth = False
-		self.currentCellRegion = None
-		#global _region
-		#_region = self
 	
 	def getColumns(self):
-		#from pprint import pformat
 		from .fakeObjects.table import ColumnSeparator
-		cells = [cell for colNum, colSpan, cell in self.row._iterCells()]
-		#log.info(f"cells: {pformat(cells, indent=2)}")
+		row = self.row
+		cells = tuple(cell for colNum, colSpan, cell in row._iterCells())
+		selNum = row.table._currentColumnNumber
 		columns = []
 		displaySize = braille.handler.displaySize
-		colSepWidth = len(ColumnSeparatorRegion.brailleCells)
+		sepWidthDefault = ColumnSeparatorRegion.widthDefault
+		sepWidthAtEoW = ColumnSeparatorRegion.widthAtEoW
 		winNum = 0
 		winSize = 0
 		for index, cell in enumerate(cells):
-			width = cell.columnWidthBraille
-			while True:
-				if width is None:
-					# No fixed width: Make this cell the last of its window.
-					columns.append((winNum, width, cell))
-					winNum += 1
-					winSize = 0
-					break
-				elif winSize + width + colSepWidth <= displaySize:
-					# Append this fixed-width cell to the current window.
-					winSize += width + colSepWidth
-					columns.append((winNum, width, cell))
-					columns.append((winNum, colSepWidth, ColumnSeparator(parent=cell.parent, cell=cell)))
-					if winSize == displaySize:
-						# Move on to the next window
-						winNum += 1
-						winSize = 0
-					break
-				elif winSize:
-					# Not enough room in the current non-empty window:
-					# Expand the last cell and move on to the next window.
-					lastWinNum, lastWidth, lastCell = columns[-2]
-					lastWidth += displaySize - winSize
-					columns[-2] = (lastWinNum, lastWidth, lastCell)
-					winNum += 1
-					winSize = 0
-					continue
-				else:
-					# Not enough room in the current empty window:
-					# Truncate to the display size and move on to the next window.
-					columns.append((winNum, displaySize - colSepWidth, cell))
-					columns.append((winNum, colSepWidth, ColumnSeparator(parent=cell.parent)))
-					winNum += 1
-					winSize = 0
-					break
-		if columns:
-			assert len(columns) >= 2
-			# Remove the last column separator and allow the last column to overflow
-			# to additional windows.
-			del columns[-1]
-			lastWinNum, lastWidth, lastCell = columns[-1]
-			columns[-1] = (lastWinNum, None, lastCell)
+			cellWidth = cell.columnWidthBraille
+			last = index + 1 >= len(cells)
+			if not (
+				(
+					cellWidth is not None
+					and winSize + cellWidth + (0 if last else sepWidthAtEoW) <= displaySize
+				) or winSize == 0 or cellWidth is None
+			):
+				# Not enough room in the current window
+				if columns:
+					assert len(columns) >= 2
+					# Shrink previous column separator
+					prevWinNum, prevWidth, colSep = columns[-1]
+					if colSep.position == ColumnSeparatorPosition.AFTER_SELECTION:
+						colSep.position = ColumnSeparatorPosition.EOW_AFTER_SEL
+						expandPrevCell = True
+					elif colSep.position in (
+						ColumnSeparatorPosition.DEFAULT,
+						ColumnSeparatorPosition.BEFORE_SELECTION,
+					):
+						colSep.position == ColumnSeparatorPosition.END_OF_WINDOW
+						expandPrevCell = True
+					else:
+						expandPrevCell = False
+					columns[-1] = (prevWinNum, sepWidthAtEoW, colSep)
+					if expandPrevCell:
+						# Expand the last cell of this window
+						prevWinNum, prevWidth, prevCell = columns[-2]
+						winSize -= prevWidth + sepWidthDefault - sepWidthAtEoW
+						prevWidth = displaySize - winSize
+						columns[-2] = (prevWinNum, prevWidth, prevCell)
+				# Move on to the next window
+				winNum += 1
+				winSize = 0
+			if not last and cellWidth is None:
+				# Expand to a whole window
+				assert winSize == 0
+				sepWidth = colSepWidthAtEoW
+				cellWidth = displaySize - sepWidth
+			elif last:
+				# Allow to overflow to additional windows
+				cellWidth = None
+			else:
+				sepWidth = sepWidthDefault
+			columns.append((winNum, cellWidth, cell))
+			if cell.columnNumber == selNum:
+				if len(columns) > 1:
+					# Change the separator pattern if on the same window
+					colSep = columns[-2][2]
+					if colSep.position == ColumnSeparatorPosition.DEFAULT:
+						colSep.position = ColumnSeparatorPosition.BEFORE_SELECTION
+				position = ColumnSeparatorPosition.AFTER_SELECTION
+			else:
+				position = ColumnSeparatorPosition.DEFAULT
+			if last:
+				# No column separator after the last column
+				break
+			columns.append((winNum, sepWidth, ColumnSeparator(
+				parent=cell.parent,
+				position=position,
+				cellBefore=cell,
+				cellAfter=cells[index + 1],
+			)))
+			winSize += cellWidth + sepWidth
+		self.maxWindowNumber = winNum
 		return columns
 	
 	def getWindowColumns(self):
 		columns = []
 		lastWinNum = 0
+		obj = self.obj
+		from .fakeObjects.table import ResizingCell
+		if isinstance(obj, ResizingCell) and obj.forceFocus:
+			obj.forceFocus = False
+			forceNum = obj.cell.columnNumber
+			self.windowNumber = None
+			obj = obj.cell
 		for winNum, width, obj in self.getColumns():
-			self.maxWindowNumber = winNum
 			if self.windowNumber is None:
 				if columns and winNum != lastWinNum:
 					columns = []
@@ -355,8 +464,6 @@ class RowRegion(braille.TextInfoRegion):
 		for width, obj in self.getWindowColumns():
 			if isinstance(obj, Cell):
 				region = CellRegion(obj)
-				if obj == self.cell:
-					self.currentCellRegion = region
 			elif isinstance(obj, ColumnSeparator):
 				region = ColumnSeparatorRegion(obj)
 			else:
@@ -365,30 +472,47 @@ class RowRegion(braille.TextInfoRegion):
 			yield region
 	
 	def routeTo(self, braillePos):
-		if self.isResizingColumnWidth:
-			if (
-				config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
-				and scriptHandler.getLastScriptRepeatCount() == 1
-			):
-				api.getFocusObject().script_done(None)
-				return
+		buffer = self.buffer
+		obj = self.obj
+		from .fakeObjects.table import ResizingCell
+		if isinstance(obj, ResizingCell):
+			resizingCell = obj
+			resizingNum = obj.cell.columnNumber
 			if config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"]:
-				start = self.buffer.regionPosToBufferPos(self.currentCellRegion, 0)
-				width = braillePos - start
-				if width >= 0:
-					api.getFocusObject().setColumnWidthBraille(width)
-				else:
-					api.getFocusObject().script_done(None)
-				return
-		self.buffer.routeTo(braillePos)
+				pos = buffer.windowStartPos + braillePos
+				for region, start, end in buffer.regionsWithPositions:
+					obj = region.obj
+					if isinstance(obj, Cell) and obj.columnNumber == resizingNum:
+						width = pos - start
+						if ColumnSeparatorRegion.scheme == "spaceBarSpace":
+							width -= 1
+						if width >= 0 and obj.columnWidthBraille != width:
+							resizingCell.setColumnWidthBraille(width)
+							return
+			resizingCell.script_done(None)
+			return
+		buffer.routeTo(braillePos)
 	
 	def update(self):
 		buffer = self.buffer
 		buffer.regions = list(self.iterWindowRegions())
 		buffer.update()
 		self.rawText = buffer.windowRawText
-		self.brailleCells = buffer.windowBrailleCells
+		self.brailleCells = brailleCells = buffer.windowBrailleCells
+		displaySize = braille.handler.displaySize
+		unused = displaySize - len(brailleCells)
+		if unused > 0:
+			# Fill the whole display, so that cursor routing can be captured on the eventual unused portion
+			# when resizing column widths.
+			self.brailleCells = brailleCells + [0] * unused
 		self.cursorPos = buffer.cursorWindowPos
+		if NVDA_VERSION >= "2023.3":
+			# Braille update is asynchronous as of NVDA PR #15163.
+			# As the system focus did not change, this set might still contain
+			# a region for a live TreeInterceptor.
+			for region in braille.handler._regionsPendingUpdate.copy():
+				if region is not self:
+					braille.handler._regionsPendingUpdate.discard(region)
 	
 	def previousLine(self, start=False):
 		# Pan left rather than moving to the previous line.
@@ -397,8 +521,7 @@ class RowRegion(braille.TextInfoRegion):
 			self.rawText = buffer.windowRawText
 			self.brailleCells = buffer.windowBrailleCells
 			self.cursorPos = buffer.cursorWindowPos
-			self.update()
-		elif self.windowNumber:
+		elif self.windowNumber > 0:
 			self.windowNumber -= 1
 			self.update()
 		else:
@@ -413,7 +536,6 @@ class RowRegion(braille.TextInfoRegion):
 			self.rawText = buffer.windowRawText
 			self.brailleCells = buffer.windowBrailleCells
 			self.cursorPos = buffer.cursorWindowPos
-			self.update()
 		elif self.windowNumber < self.maxWindowNumber:
 			self.windowNumber += 1
 			self.update()
@@ -727,12 +849,8 @@ class TableManager(ScriptableObject):
 					return cell
 				elif cell.rowNumber == self._currentRowNumber:
 					if cell.columnNumber == self._currentColumnNumber:
-						#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> focus {cell!r}")
 						return cell
-					#return cell.row._currentCell
-					newCell = cell.row._currentCell
-					#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> row {cell!r} -> {newCell!r}")
-					return newCell
+					return cell.row._currentCell
 		if self._currentRowNumber is None or self._currentColumnNumber is None:
 			cell = self._firstDataCell
 			if cell:
@@ -740,7 +858,6 @@ class TableManager(ScriptableObject):
 				self._currentColumnNumber = cell.columnNumber
 		else:
 			cell = self._getCell(self._currentRowNumber, self._currentColumnNumber)
-			#log.info(f"table._get__currentCell: {self._currentRowNumber, self._currentColumnNumber} -> table._getCell {cell!r}")
 		if not cell:
 			log.warning("Could not retrieve current cell ({}, {})".format(self._currentRowNumber, self._currentColumnNumber))
 		return cell

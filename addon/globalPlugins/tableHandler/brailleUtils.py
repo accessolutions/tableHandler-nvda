@@ -37,11 +37,30 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 	def __init__(self):
 		super().__init__(handler=braille.handler)
 	
+	def bufferPosToRegionPos(self, bufferPos):
+		# Reverse the logic to allow routing to the end of an extended or windowed region
+		# while actually clicking a blank empty cell.
+		for region, start, end in reversed(tuple(self.regionsWithPositions)):
+			if start <= bufferPos:
+				regionPos = bufferPos - start
+				regionLastPos = end - start - 1
+				if regionPos > regionLastPos:
+					regionPos = regionLastPos
+				return region, regionPos
+		raise LookupError("No such position")
+	
 	def onRegionUpdatedBeforePadding(self, region):
 		pass
 	
 	def onRegionUpdatedAfterPadding(self, region):
 		pass
+	
+	def routeTo(self, windowPos):
+		# Do not apply the usual windowEndPos check to allow to allow routing to the end
+		# of an extended or windowed region while actually clicking a blank empty cell.
+		pos = self.windowStartPos + windowPos
+		region, pos = self.bufferPosToRegionPos(pos)
+		region.routeTo(pos)
 	
 	def update(self):
 		self.rawText = ""
@@ -53,7 +72,6 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 			self.onRegionUpdatedBeforePadding(region)
 			cells = region.brailleCells
 			width = region.width
-#			log.info(f"@@@ >>> rawText={region.rawText}, width={width}, len={len(region.rawText)}/{len(region.brailleCells)}")
 			if width is not None:
 				if len(cells) > width:
 					rawEnd = region.brailleToRawPos[width]
@@ -61,12 +79,12 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 					del region.rawToBraillePos[rawEnd:]
 					del cells[width:]
 					del region.brailleToRawPos[width:]
-				while len(cells) < width:
-					region.brailleToRawPos.append(len(region.rawText))
-					region.rawToBraillePos.append(len(cells))
-					region.rawText += " "
-					cells.append(0)
-#			log.info(f"@@@ <<< rawText={region.rawText}, width={width}, len={len(region.rawText)}/{len(region.brailleCells)}")
+				extra = width - len(cells)
+				if extra > 0:
+					region.brailleCells += (0,) * extra
+					region.rawText += " " * extra
+					region.brailleToRawPos += (region.brailleToRawPos[-1],) * extra
+					region.rawToBraillePos += (region.rawToBraillePos[-1],) * extra
 			self.onRegionUpdatedAfterPadding(region)
 			self.rawText += region.rawText
 			self.brailleCells.extend(region.brailleCells)

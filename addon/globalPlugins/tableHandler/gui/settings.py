@@ -34,8 +34,6 @@ from gui import guiHelper
 from gui.settingsDialogs import SettingsDialog, SettingsPanel
 from logHandler import log
 
-from ..brailleUtils import brailleCellsDecimalStringToUnicode
-
 
 addonHandler.initTranslation()
 
@@ -90,21 +88,11 @@ class TableHandlerSettingsDialog(SettingsDialog):
 
 class TableHandlerSettingsPanel(SettingsPanel):
 	# Translators: The label for a category in the settings dialog
-	title = _("Table Mode")
-	
-	def isValid(self):
-		try:
-			brailleCellsDecimalStringToUnicode(self.brlColSep.Value)
-		except Exception:
-			log.info(
-				"Error validating brailleColumnSeparator={!r}".format(self.brlColSep.Value),
-				exc_info=True
-			)
-			return False
-		return super().isValid()
+	title = _("Table Mode")	
 	
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
+		
 		item = self.quickNav = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
@@ -113,27 +101,41 @@ class TableHandlerSettingsPanel(SettingsPanel):
 			))
 		)
 		item.Value = config.conf["tableHandler"]["enableOnQuickNav"]
+		
 		item = self.brlDblClick = sHelper.addItem(
-			# Translators: The label for a settings in the Table Mode settings panel
+			# Translators: The label for a field in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
 				"&Double-click on braille routing cursor"
 				" to activate controls within table cells"
 			))
 		)
 		item.Value = config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"]
+		
 		item = self.brlShowSel = sHelper.addItem(
-			# Translators: The label for a settings in the Table Mode settings panel
+			# Translators: The label for a field in the Table Mode settings panel
 			wx.CheckBox(self, label=_("&Underline in braille the selected column"))
 		)
 		item.Value = config.conf["tableHandler"]["brailleShowSelection"]
+		
 		item = self.brlColSep = sHelper.addLabeledControl(
-			# Translators: The label for a settings in the Table Mode settings panel
-			_(
-				"Braille dots to display as column &separator."
-				" (eg. \"0-4568-0\"):"),
-			wx.TextCtrl
+			# Translators: The label for a field in the Table Mode settings panel
+			_("Braille column &separator style:"),
+			wx.Choice,
+			choices=[
+				# Translators: The label for a separator style on the Table Mode settings panel
+				_("Bar"),
+				# Translators: The label for a separator style on the Table Mode settings panel
+				_("Bar, with space after on displays > 40"),
+				# Translators: The label for a separator style on the Table Mode settings panel
+				_("Two spaces"),
+				# Translators: The label for a separator style on the Table Mode settings panel
+				_("Bar space"),
+				# Translators: The label for a separator style on the Table Mode settings panel
+				_("Bar space, with space before on displays > 40"),
+			],
 		)
-		item.Value = config.conf["tableHandler"]["brailleColumnSeparator"]
+		item.SetSelection(config.conf["tableHandler"]["brailleColumnSeparatorStyle"])
+		
 		item = self.brlColSepActivate = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
@@ -141,6 +143,7 @@ class TableHandlerSettingsPanel(SettingsPanel):
 			))
 		)
 		item.Value = config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"]
+		
 		item = self.brlColWidthRouting = sHelper.addItem(
 			# Translators: The label for a settings in the Table Mode settings panel
 			wx.CheckBox(self, label=_(
@@ -155,7 +158,7 @@ class TableHandlerSettingsPanel(SettingsPanel):
 		config.conf["tableHandler"]["enableOnQuickNav"] = self.quickNav.GetValue()
 		config.conf["tableHandler"]["brailleRoutingDoubleClickToActivate"] = self.brlDblClick.GetValue()
 		config.conf["tableHandler"]["brailleShowSelection"] = self.brlShowSel.GetValue()
-		config.conf["tableHandler"]["brailleColumnSeparator"] = self.brlColSep.Value
+		config.conf["tableHandler"]["brailleColumnSeparatorStyle"] = self.brlColSep.Selection
 		config.conf["tableHandler"]["brailleColumnSeparatorActivateToSetWidth"] = self.brlColSepActivate.Value
 		config.conf["tableHandler"]["brailleSetColumnWidthWithRouting"] = self.brlColWidthRouting.Value
 		from ..config import handleConfigChange
