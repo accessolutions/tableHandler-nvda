@@ -806,6 +806,7 @@ class TableManager(ScriptableObject):
 	scriptCategory = SCRIPT_CATEGORY
 	cachePropertiesByDefault = True
 	role = controlTypes.ROLE_TABLE
+	_missingTableCellSearchLimit = 3
 	
 	def __init__(self, *args, **kwargs):
 		self._lastReportedCellStates = set()
@@ -1191,12 +1192,20 @@ class TableManager(ScriptableObject):
 			if direction == DIRECTION_NEXT:
 				span = getSpan(fromObj)
 				toNum = fromNum + span
-				toObj = getObj(toNum)
+				extra = 0
+				while extra < self._missingTableCellSearchLimit:
+					toNum += extra
+					toObj = getObj(toNum)
+					if toObj is not None:
+						break
+					extra += 1
 			elif direction == DIRECTION_PREVIOUS:
 				toNum = fromNum - 1
 				while True:
 					toObj = getObj(toNum)
-					if toObj is fromObj and toNum > 1:
+					if toObj is fromObj:
+						toObj = None
+					if toObj is None and toNum > 1:
 						toNum -= 1
 						continue
 					break
