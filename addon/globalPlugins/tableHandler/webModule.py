@@ -76,7 +76,12 @@ class TableHandlerWebModule(WebModule, DocumentTableHandler):
 		if (name.startswith("script_") or name.startswith("action_")) and not isinstance(
 			value, TableHandlerBmdtiScriptWrapper
 		):
-			ti = self.ruleManager.nodeManager.treeInterceptor
+			try:
+				ti = self.ruleManager.nodeManager.treeInterceptor
+			except AttributeError:
+				# Either the first NodeManager update did not finish yet or a rule is
+				# being edited offline.
+				return value
 			return TableHandlerWebModuleScriptWrapper(ti, value)
 		return value
 	
