@@ -388,7 +388,7 @@ class RowRegion(braille.TextInfoRegion):
 						ColumnSeparatorPosition.DEFAULT,
 						ColumnSeparatorPosition.BEFORE_SELECTION,
 					):
-						colSep.position == ColumnSeparatorPosition.END_OF_WINDOW
+						colSep.position = ColumnSeparatorPosition.END_OF_WINDOW
 						expandPrevCell = True
 					else:
 						expandPrevCell = False
