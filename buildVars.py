@@ -20,7 +20,7 @@ addon_info = {
 	"addon_description": _("""Description for the add-on.
 It can span multiple lines."""),
 	# version
-	"addon_version": "2025.03.06-dev",
+	"addon_version": "2025.06.25-dev",
 	# Author(s)
 	"addon_author": u"Accessolutions (https://accessolutions.fr)",
 	# URL for the add-on documentation support
