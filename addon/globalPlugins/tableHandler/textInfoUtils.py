@@ -201,9 +201,17 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 			**self.containerCriteria
 		)
 	
+	def _getProxiedAllowMoveToOffsetPastEnd(self):
+		# NVDA 2026.1 (#19152) replaced the `allowMoveToOffsetPastEnd` property
+		# with the `allowMoveToUnitOffsetPastEnd(unit)` method.
+		method = getattr(self.proxied, "allowMoveToUnitOffsetPastEnd", None)
+		if method is not None:
+			return method(textInfos.UNIT_CHARACTER)
+		return self.proxied.allowMoveToOffsetPastEnd
+	
 	def _convertFromProxiedOffset(self, offset):
 		startOffset = self.proxied._startOffset
-		endOffset = self.proxied._endOffset + (1 if self.proxied.allowMoveToOffsetPastEnd else 0)
+		endOffset = self.proxied._endOffset + (1 if self._getProxiedAllowMoveToOffsetPastEnd() else 0)
 		return max(0, min(offset, endOffset) - startOffset)
 	
 	def _convertFromProxiedOffsets(self, *offsets):
@@ -211,7 +219,7 @@ class WindowedProxyTextInfo(textInfos.offsets.OffsetsTextInfo):
 	
 	def _convertToProxiedOffset(self, offset):
 		startOffset = self.proxied._startOffset
-		endOffset = self.proxied._endOffset + (1 if self.proxied.allowMoveToOffsetPastEnd else 0)
+		endOffset = self.proxied._endOffset + (1 if self._getProxiedAllowMoveToOffsetPastEnd() else 0)
 		offset += startOffset
 		return max(startOffset, min(endOffset, offset))
 	
