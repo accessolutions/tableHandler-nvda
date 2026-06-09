@@ -29,6 +29,7 @@ __license__ = "GPL"
 import sys
 
 import braille
+from buildVersion import version_detailed as NVDA_VERSION
 from logHandler import log
 
 
@@ -91,6 +92,13 @@ class TabularBrailleBuffer(braille.BrailleBuffer):
 			if region.brailleCursorPos is not None:
 				self.cursorPos = start + region.brailleCursorPos
 			start += len(cells)
+		if NVDA_VERSION >= "2025.":
+			# NVDA 2025.1+ (as of PR nvaccess/nvda#17011 (commit cee553df47)
+			# derives the visible window (windowBrailleCells / windowRawText)
+			# from per-row buffer offsets to support multi-line braille displays.
+			# Stock BrailleBuffer.update() recomputes them; this override must too,
+			# otherwise the window is rendered as blank cells and nothing is shown.
+			self._calculateWindowRowBufferOffsets(self.windowStartPos)
 
 
 def brailleCellDecimalStringToInteger(dec):

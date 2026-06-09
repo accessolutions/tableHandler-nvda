@@ -259,6 +259,11 @@ class RowRegionBuffer(TabularBrailleBuffer):
 	def _set_windowEndPos(self, endPos):
 		# Changed from stock implementation:
 		#  - Also consider SELECTION_SHAPE as a word break
+		#  - The upstream paragraph-marker rescue branch added in NVDA 2024.4
+		#    (PR nvaccess/nvda#16906, commit fbb74372e8) is intentionally
+		#    omitted; it would only be useful once a `CellRegion` renders
+		#    multiple paragraphs at once, which Table Handler does not
+		#    currently do.
 		"""Sets the end position for the braille window and recalculates the window start position based on several variables.
 		1. Braille display size.
 		2. Whether one of the regions should be shown hard left on the braille display;
@@ -293,11 +298,19 @@ class RowRegionBuffer(TabularBrailleBuffer):
 			# To do this, break after the furthest possible block of spaces.
 			# Find the start of the first block of spaces.
 			# Search from 1 cell before in case startPos is just after a space.
-			for index in range(endPos - 1, startPos - 2, -1):
-				if cells[index] in (0, braille.SELECTION_SHAPE):
-					startPos = index
-					break
-			else:
+			#
+			# Changed: Also account for SELECTION_SHAPE.
+			cells = self.brailleCells
+			try:
+				firstZero = cells.index(0, startPos - 1, endPos)
+			except ValueError:
+				firstZero = endPos
+			try:
+				firstSel = cells.index(braille.SELECTION_SHAPE, startPos - 1, endPos)
+			except ValueError:
+				firstSel = endPos
+			startPos = min(firstZero, firstSel)
+			if startPos == endPos:
 				raise ValueError()
 			# Skip past spaces.
 			for startPos in range(startPos, endPos):
@@ -305,17 +318,61 @@ class RowRegionBuffer(TabularBrailleBuffer):
 					break
 		except ValueError:
 			pass
-		# When word wrap is enabled, the first block of spaces may be removed from the current window.
-		# This may prevent displaying the start of paragraphs.
-		paragraphStartMarker = getParagraphStartMarker()
-		if paragraphStartMarker and self.regions[-1].rawText.startswith(
-			paragraphStartMarker + TEXT_SEPARATOR,
-		):
-			region, regionStart, regionEnd = list(self.regionsWithPositions)[-1]
-			# Show paragraph start indicator if it is now at the left of the current braille window
-			if startPos <= len(paragraphStartMarker) + 1:
-				startPos = self.regionPosToBufferPos(region, regionStart)
+		# Upstream `BrailleBuffer._set_windowEndPos` (NVDA 2024.4,
+		# PR nvaccess/nvda#16906, commit fbb74372e8) rescues a
+		# paragraph-start marker that the word-wrap leading-space skip
+		# would otherwise hide. Not applicable here as long as each
+		# `CellRegion` renders a single paragraph (the marker is then
+		# part of the cell's `rawText`, never a stand-alone buffer-edge
+		# prefix). Re-introduce if multi-paragraph cell rendering is
+		# implemented.
 		self.windowStartPos = startPos
+	
+	def _calculateWindowRowBufferOffsets(self, pos):
+		# Changed from stock implementation (NVDA 2024.4+,
+		# PR nvaccess/nvda#17011, commit cee553df47):
+		#  - Also consider SELECTION_SHAPE as a word break, mirroring
+		#    `_get_windowEndPos`.
+		#
+		# Without this override, when `brailleShowSelection` decorates
+		# every cell of the selected column with SELECTION_SHAPE
+		# (see `onRegionUpdatedAfterPadding`), the padding-space cells
+		# of the selected column stop being plain `0` and the base
+		# helper only sees the inter-column separators as word-break
+		# candidates. As a result, when the selected column is the last
+		# (overflow-allowed) one, the first row of the braille window is
+		# truncated right before that column and the start of the
+		# selected cell only becomes reachable by panning right (which
+		# triggers `_nextWindow` -> `_get_windowEndPos`, whose existing
+		# override does honour SELECTION_SHAPE).
+		self._windowRowBufferOffsets.clear()
+		if len(self.brailleCells) == 0:
+			self._windowRowBufferOffsets = [(0, 0)]
+			return
+		doWordWrap = config.conf["braille"]["wordWrap"]
+		cells = self.brailleCells
+		bufferEnd = len(cells)
+		start = pos
+		clippedEnd = False
+		for row in range(self.handler.displayDimensions.numRows):
+			end = start + self.handler.displayDimensions.numCols
+			if end >= bufferEnd:
+				end = bufferEnd
+				clippedEnd = True
+			elif doWordWrap:
+				# Mirror `_get_windowEndPos`: walk back from `end - 1`
+				# looking for a `0` or SELECTION_SHAPE cell. The break cell
+				# itself is excluded from the current row and becomes the
+				# first cell of the next row, matching the legacy slicing
+				# behaviour used by NVDA <= 2024.3.1.
+				for index in range(end - 1, start - 1, -1):
+					if cells[index] in (0, braille.SELECTION_SHAPE):
+						end = index
+						break
+			self._windowRowBufferOffsets.append((start, end))
+			if clippedEnd:
+				break
+			start = end
 	
 	def onRegionUpdatedAfterPadding(self, region):
 		if not isinstance(region, CellRegion):
